@@ -6,12 +6,12 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 ## Status
 
-Phase 0 (repo scaffold) in progress. Not functional yet.
+Phase 1 (threat model & architecture) complete. Not functional yet — no interception code written.
 
 ## Scope
 
 - **In scope:** tool-call request/response interception, classification of tool-call scope drift and indirect prompt injection in tool output, configurable enforcement policy, human-approval queue.
-- **Out of scope (for now):** semantic content of the agent's own text responses, model internals of closed APIs. See `docs/architecture.md` for the full threat-model boundary once written.
+- **Out of scope:** semantic content of the agent's own text responses, model internals of closed APIs, direct prompt injection from the user's own turns, tool reliability/correctness, network/infra security, tool supply-chain security. Full detail in [docs/threat-model.md](docs/threat-model.md).
 
 ## Differentiation
 
