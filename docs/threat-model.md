@@ -42,7 +42,7 @@ Trust boundary: the agent (LLM + orchestration) is semi-trusted and assumed to f
 
 ### Denial of Service
 - Adversarial or pathological tool output (very large payloads, engineered-expensive input) could spike classifier latency or crash the classification step, stalling the whole agent pipeline.
-- **Open question, deferred to Phase 6:** what does the enforcement engine do when the classifier itself times out or errors — fail-open (let the tool call proceed, prioritizing availability) or fail-closed (block/hold, prioritizing safety)? This is a real tradeoff with no default assumed here; it will be raised explicitly for review when Phase 6 (enforcement engine) is implemented, not decided unilaterally.
+- **Resolved 2026-08-11 (was deferred to Phase 6):** the enforcement engine fails closed into HOLD on a classifier timeout — same bucket as a genuine mid-confidence score, not fail-open and not a hard deny. See `docs/known_limitations.md` for the full reasoning and the availability tradeoff this creates (approval-queue depth grows under timeout pressure even when detection accuracy doesn't).
   - *Mitigation direction:* input size caps and timeouts regardless of which policy is chosen.
 
 ### Elevation of Privilege
