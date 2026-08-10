@@ -58,4 +58,4 @@ mlruns/
 Thumbs.db
 
 # --- Claude Code local settings (machine-specific) ---
-.claude/settings.local.json
+.claude/

@@ -6,7 +6,7 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 ## Status
 
-Phase 3 (dataset assembly) complete. 4,348 normalized records assembled from InjecAgent (train/test) and AgentDojo (held-out novel-attack split) — see [docs/datasets.md](docs/datasets.md) and [datasets/REPORT.md](datasets/REPORT.md). PINT was dropped as a trainable/evaluable source (its real dataset isn't public); see docs/datasets.md for why. No classifier trained yet (Phase 4) and no blocking exists yet (Phase 6).
+Phase 4 (classifier core) complete. Fine-tuned `microsoft/deberta-v3-base` + trained a LightGBM ensemble on the Phase 3 dataset. Honest result: near-perfect on the in-distribution test split (F1 1.000) but a real, expected drop on the held-out novel-attack split (F1 ~0.42, driven by low precision — the classifier over-flags AgentDojo's benign prompts). This gap is not tuned away; see [docs/classifier_report.md](docs/classifier_report.md). No blocking/enforcement exists yet (Phase 6) — this is detection only.
 
 ## Scope
 

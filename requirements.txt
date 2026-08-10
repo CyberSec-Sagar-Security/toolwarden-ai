@@ -2,3 +2,26 @@
 # Pinned to exact versions (==), not ranges.
 openai==1.109.1
 agentdojo==0.1.35
+
+# torch build matches this dev machine's driver (CUDA 13.2, RTX 2000 Ada,
+# confirmed via nvidia-smi). Re-pin if training moves to different hardware.
+--extra-index-url https://download.pytorch.org/whl/cu132
+torch==2.13.0+cu132
+# Pinned below 5.x deliberately: transformers 5.15.0 has a regression that
+# produces NaN gradients when fine-tuning DeBERTa-v2/v3 architectures
+# (confirmed via a raw manual forward/backward diagnostic — loss and grad
+# norms are healthy at 4.46.3, NaN from step 1 onward at 5.15.0, across
+# every precision/attention-implementation combination tried). Re-test
+# before bumping this past 5.x again.
+transformers==4.46.3
+accelerate==1.14.0
+scikit-learn==1.9.0
+lightgbm==4.7.0
+sentencepiece==0.2.2
+protobuf==7.35.1
+# Not called directly by our code — needed because transformers.Trainer
+# checks isinstance(x, datasets.Dataset) at runtime. Without the real
+# package installed, our own repo-root datasets/ folder gets resolved as an
+# empty namespace package (cwd is on sys.path for `python -m`), which
+# satisfies `import datasets` but has no .Dataset attribute and crashes.
+datasets==5.0.1
