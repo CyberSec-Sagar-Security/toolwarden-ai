@@ -1,0 +1,61 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Secrets / credentials ---
+.env
+.env.*
+*.key
+*.pem
+secrets.yaml
+secrets.json
+**/credentials.json
+
+# --- Model weights (must live in D:\CyberSecurity\Projects\Apps and Models\ToolWarden, never here) ---
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.ckpt
+models/**/*.gguf
+models/**/*.safetensors
+models/**/weights/
+
+# --- Datasets (raw/processed data, not code) ---
+datasets/raw/
+datasets/processed/
+datasets/**/*.csv
+datasets/**/*.jsonl
+datasets/**/*.parquet
+!datasets/**/README.md
+
+# --- Logs, caches, run artifacts ---
+*.log
+logs/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+wandb/
+mlruns/
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Claude Code local settings (machine-specific) ---
+.claude/settings.local.json
