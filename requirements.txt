@@ -1,0 +1,3 @@
+# Runtime dependencies. Empty for now — populated phase by phase as real
+# code lands (Phase 2: interception layer; Phase 4: torch/transformers/lightgbm; etc.).
+# Pinned to exact versions (==) once added, not ranges.
