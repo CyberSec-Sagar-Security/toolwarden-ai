@@ -6,7 +6,9 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 ## Status
 
-Phase 6 (enforcement engine) complete. Policy layer maps a classifier score to allow/block/quarantine/hold (block for outbound requests, quarantine for inbound results already in flight — see [docs/architecture.md](docs/architecture.md)), with a human-approval queue for held actions, every resolution attributed and logged. Classifier timeouts fail closed into the same hold path as a genuine mid-confidence score — see [docs/known_limitations.md](docs/known_limitations.md) for the full reasoning and the availability tradeoff this creates. Full flagged→held→approved/denied→proceeds-or-not cycle demonstrated in `tests/unit/test_enforcement_engine.py`. Detection (Phase 4/5) results unchanged: F1 1.000 in-distribution, ~0.42 on the held-out novel-attack split.
+Phase 7 (local adversarial red-teamer) complete. Qwen2.5-14B-Instruct (Q4_K_M, llama.cpp, GPU-offloaded) running locally, driven by cross-product prompt scaffolding over an attack-intent/cover-context/phrasing-strategy taxonomy — see [docs/redteam_generation_report.md](docs/redteam_generation_report.md). Two generations: v1 had real quality problems found by manual review (phrasing clustering, several mislabeled non-attacks, cartoonish obfuscation); the prompt was fixed and regenerated. v2's mislabeling issue is resolved, phrasing clustering improved, obfuscation realism remains a known, disclosed limitation. Novelty confirmed both by a trigram-overlap check against the trainable pool (max 0.08) and manual read. Generated data is permanently flagged `is_synthetic: true` and is not merged into the trainable dataset.
+
+Enforcement engine (Phase 6) and explainability (Phase 5) results stand — see [docs/](docs/). Detection: F1 1.000 in-distribution, ~0.42 on the held-out novel-attack split.
 
 ## Scope
 
