@@ -6,7 +6,7 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 ## Status
 
-Phase 2 (passthrough interception layer, direct API) complete. The interception core captures outbound tool-call requests and inbound tool-call results for OpenAI tool-calling agents and logs them — it does not yet classify or block anything (that starts at Phase 4/6).
+Phase 3 (dataset assembly) complete. 4,348 normalized records assembled from InjecAgent (train/test) and AgentDojo (held-out novel-attack split) — see [docs/datasets.md](docs/datasets.md) and [datasets/REPORT.md](datasets/REPORT.md). PINT was dropped as a trainable/evaluable source (its real dataset isn't public); see docs/datasets.md for why. No classifier trained yet (Phase 4) and no blocking exists yet (Phase 6).
 
 ## Scope
 

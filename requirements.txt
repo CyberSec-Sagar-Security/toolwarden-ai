@@ -1,3 +1,4 @@
 # Runtime dependencies, populated phase by phase as real code lands.
 # Pinned to exact versions (==), not ranges.
-openai==1.59.6
+openai==1.109.1
+agentdojo==0.1.35
