@@ -6,7 +6,7 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 ## Status
 
-Phase 4 (classifier core) complete. Fine-tuned `microsoft/deberta-v3-base` + trained a LightGBM ensemble on the Phase 3 dataset. Honest result: near-perfect on the in-distribution test split (F1 1.000) but a real, expected drop on the held-out novel-attack split (F1 ~0.42, driven by low precision — the classifier over-flags AgentDojo's benign prompts). This gap is not tuned away; see [docs/classifier_report.md](docs/classifier_report.md). No blocking/enforcement exists yet (Phase 6) — this is detection only.
+Phase 5 (explainability) complete. SHAP over the LightGBM engineered features + DeBERTa last-layer attention over tokens, both wired to a spot-check against real examples from the assembled dataset — see [docs/explainability_report.md](docs/explainability_report.md). Honest finding: both explainers give real but imprecise signal (SHAP leans on coarse features like text length more than the targeted ones; attention partially but not cleanly isolates the injected span) — treat as directional evidence for a human approver, not a precise highlight. Classifier core (Phase 4) result stands: F1 1.000 in-distribution, ~0.42 on the held-out novel-attack split; see [docs/classifier_report.md](docs/classifier_report.md). No blocking/enforcement exists yet (Phase 6) — this is detection only.
 
 ## Scope
 

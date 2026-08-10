@@ -25,3 +25,4 @@ protobuf==7.35.1
 # empty namespace package (cwd is on sys.path for `python -m`), which
 # satisfies `import datasets` but has no .Dataset attribute and crashes.
 datasets==5.0.1
+shap==0.52.0
