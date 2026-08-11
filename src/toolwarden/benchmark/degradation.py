@@ -42,6 +42,20 @@ CHART_PATH = REPO_ROOT / "docs" / "degradation_curve.png"
 
 THRESHOLD = 0.5
 
+# Frozen snapshot of the first Phase 8 run (red-teamer: qwen2.5-14b-instruct,
+# commit e86e987, docs/degradation_curve_report.md as of 2026-08-11 before the
+# Qwen3.5-9b swap). Not recomputed here — that data was superseded when the
+# red-team set was regenerated (see docs/redteam_generation_report_qwen2.5-14b_archive.md)
+# and can't be reproduced without reverting the swap. Kept only so the
+# "results don't depend on which red-team model was used" claim below is
+# actually shown side by side, not asserted from memory. Verify against
+# `git show e86e987:docs/degradation_curve_report.md` if this ever looks stale.
+QWEN2_5_ENSEMBLE_RECALL = {
+    "in_distribution_test": (1.000, 0.989, 1.000),
+    "agentdojo_held_out": (0.914, 0.776, 0.970),
+    "synthetic_all": (0.997, 0.981, 0.999),
+}
+
 # Confirmed 2026-08-11 against lakeraai/pint-benchmark's own README.md
 # leaderboard table (github.com/lakeraai/pint-benchmark) — a published
 # third-party number, NOT an evaluation this project ran. PINT's real
@@ -252,14 +266,17 @@ def _write_report(results: dict) -> str:
         "",
         LOWER_BOUND_CAVEAT,
         "",
-        "## Recall (detection rate) by source — the curve itself",
+        "## Full results by source and model — recall, precision, and F1 together",
         "",
-        "Recall is the one metric well-defined across every source, including the attack-only "
-        "synthetic set (no benign counterpart exists there, so precision/F1 aren't computable without "
-        "assuming one — not done here).",
+        "Recall, precision, and F1 are shown side by side for every source, not recall alone in a "
+        "headline table with precision demoted to a later section — that split previously made the "
+        "flattering metric (recall) the first thing shown for AgentDojo while its far worse precision "
+        "(0.27-0.30) stayed out of view. Precision/F1 are marked N/A for the synthetic buckets because "
+        "they're attack-only by construction (Phase 7 generated injection examples only, no benign "
+        "counterparts) — that's a structural gap in what's measurable, not a number being hidden.",
         "",
-        "| Source | N | DeBERTa-v3-base | LightGBM | Ensemble |",
-        "|---|---|---|---|---|",
+        "| Source | N | Model | Recall (95% CI) | Precision (95% CI) | F1 (95% CI) |",
+        "|---|---|---|---|---|---|",
     ]
 
     bucket_labels = {
@@ -269,35 +286,32 @@ def _write_report(results: dict) -> str:
         "synthetic_pretext": "Synthetic, pretext subset",
         "synthetic_non_pretext": "Synthetic, non-pretext subset",
     }
+    has_full_metrics = {"in_distribution_test", "agentdojo_held_out"}
     for key, label in bucket_labels.items():
         row = results[key]
         n = row["Ensemble"]["n"]
-        cells = [_fmt_ci(row[m]["recall"], row[m]["recall_lo"], row[m]["recall_hi"]) for m in MODEL_COLORS]
-        lines.append(f"| {label} | {n} | {cells[0]} | {cells[1]} | {cells[2]} |")
+        for m in MODEL_COLORS:
+            r = row[m]
+            recall_cell = _fmt_ci(r["recall"], r["recall_lo"], r["recall_hi"])
+            if key in has_full_metrics:
+                precision_cell = _fmt_ci(r["precision"], r["precision_lo"], r["precision_hi"])
+                f1_cell = _fmt_ci(r["f1"], r["f1_lo"], r["f1_hi"])
+            else:
+                precision_cell = "N/A (attack-only)"
+                f1_cell = "N/A (attack-only)"
+            lines.append(f"| {label} | {n} | {m} | {recall_cell} | {precision_cell} | {f1_cell} |")
 
     lines += [
         "",
+        "**On the pretext-subset row (N=14): the 1.000 point estimate is not a confident finding.** "
+        "14 examples is too small a sample to draw a real conclusion from either way — the wide "
+        "confidence interval already reflects that mathematically, but it's worth saying in words too, "
+        "so the 1.000 isn't misread as evidence the pretext subset is definitively easier to detect than "
+        "the rest. Treat the pretext-vs-non-pretext comparison as suggestive at best, not established.",
+        "",
         LOWER_BOUND_CAVEAT,
         "",
-        "## Full metrics — sources with both classes (F1 / precision / recall, all with 95% CI)",
-        "",
-        "The synthetic set is attack-only by construction (Phase 7 generated injection examples only, "
-        "no benign counterparts) — F1/precision aren't reported for it here for that reason, not omitted "
-        "by oversight.",
-        "",
     ]
-    for key, label in [("in_distribution_test", "In-distribution test (InjecAgent)"), ("agentdojo_held_out", "Held-out novel (AgentDojo)")]:
-        row = results[key]
-        n = row["Ensemble"]["n"]
-        lines += [f"### {label} (N={n})", "", "| Model | F1 | Precision | Recall |", "|---|---|---|---|"]
-        for m in MODEL_COLORS:
-            r = row[m]
-            lines.append(
-                f"| {m} | {_fmt_ci(r['f1'], r['f1_lo'], r['f1_hi'])} | "
-                f"{_fmt_ci(r['precision'], r['precision_lo'], r['precision_hi'])} | "
-                f"{_fmt_ci(r['recall'], r['recall_lo'], r['recall_hi'])} |"
-            )
-        lines.append("")
 
     ens = "Ensemble"
     synth_recall = results["synthetic_all"][ens]["recall"]
@@ -315,8 +329,6 @@ def _write_report(results: dict) -> str:
     non_pretext_recall = results["synthetic_non_pretext"][ens]["recall"]
 
     lines += [
-        LOWER_BOUND_CAVEAT,
-        "",
         "## Interpretation",
         "",
         (
@@ -348,15 +360,58 @@ def _write_report(results: dict) -> str:
         "found and removed by a human, not avoided naturally by the generator.",
         "",
         f"Within the synthetic set, the pretext/non-pretext split shows recall of {pretext_recall:.3f} on "
-        f"the pretext subset vs. {non_pretext_recall:.3f} on the non-pretext subset — "
+        f"the pretext subset (N={results['synthetic_pretext'][ens]['n']}) vs. {non_pretext_recall:.3f} on "
+        f"the non-pretext subset (N={results['synthetic_non_pretext'][ens]['n']}) — "
         + (
-            "a small effect in the expected direction, "
+            "a small apparent effect in the expected direction, "
             if pretext_recall >= non_pretext_recall
             else "no effect, or a reversal of the expected direction — worth noting rather than glossing over, "
         )
-        + "and in either case far smaller than the gap between the synthetic set and AgentDojo. Source (real "
-        "structurally-disjoint benchmark vs. LLM-generated attacks) matters far more than which subset "
-        "of the synthetic set is used.",
+        + "but the pretext subset is small enough (see the results table's note above) that this "
+        "comparison shouldn't be read as an established finding either way, and it's far smaller than "
+        "the gap between the synthetic set and AgentDojo regardless. Source (real structurally-disjoint "
+        "benchmark vs. LLM-generated attacks) matters far more than which subset of the synthetic set is used.",
+        "",
+        LOWER_BOUND_CAVEAT,
+        "",
+        "## Cross-model comparison — is this actually independent of which red-teamer generated the data?",
+        "",
+        "Shown, not asserted: ensemble recall from this run (red-teamer: "
+        f"{MODEL_TAG}) against the frozen first-run snapshot (red-teamer: qwen2.5-14b-instruct, "
+        "`git show e86e987:docs/degradation_curve_report.md`).",
+        "",
+        "| Source | qwen2.5-14b-instruct recall | " + MODEL_TAG + " recall | Same conclusion? |",
+        "|---|---|---|---|",
+    ]
+
+    for key, old_label in [
+        ("in_distribution_test", "In-distribution test (InjecAgent)"),
+        ("agentdojo_held_out", "Held-out novel (AgentDojo)"),
+        ("synthetic_all", "Synthetic, all"),
+    ]:
+        old_point, old_lo, old_hi = QWEN2_5_ENSEMBLE_RECALL[key]
+        new_point, new_lo, new_hi = (
+            results[key][ens]["recall"],
+            results[key][ens]["recall_lo"],
+            results[key][ens]["recall_hi"],
+        )
+        old_cell = _fmt_ci(old_point, old_lo, old_hi)
+        new_cell = _fmt_ci(new_point, new_lo, new_hi)
+        overlap = not (new_hi < old_lo or old_hi < new_lo)
+        verdict = "Yes — CIs overlap" if overlap else "No — CIs don't overlap, see note"
+        lines.append(f"| {old_label} | {old_cell} | {new_cell} | {verdict} |")
+
+    lines += [
+        "",
+        "The in-distribution-test and AgentDojo rows are identical or near-identical between runs by "
+        "construction — neither bucket touches the red-team model at all, so agreement there is a "
+        "consistency check on the pipeline, not evidence about the red-teamer. The synthetic-set row is "
+        "the only one that actually depends on which model generated the data, and it's where the "
+        "comparison matters: both runs land in the same range, both stay well above AgentDojo's recall, "
+        "and both support the same qualitative reading (the synthetic set is easier for the classifier "
+        "than the real held-out benchmark). That's what \"confirmed independent of model\" means here — "
+        "not that the numbers are identical, but that the conclusion a reader would draw doesn't change "
+        "depending on which of the two red-teamers produced the data.",
         "",
         LOWER_BOUND_CAVEAT,
         "",

@@ -8,39 +8,29 @@ The project's headline artifact: recall (detection rate) reported separately per
 
 **Read as a lower bound on real degradation, not an accurate estimate — likely understated by more than the numbers below alone would suggest.** Phase 7's synthetic set (current: Qwen3.5-9b, see docs/redteam_generation_report.md) still has disclosed weaknesses after iteration: obfuscation realism is weak (most 'obfuscated' examples skip the technique and produce clean prose instead), a small residual pretext cluster remains (~5% share a 'system recovery / priority override' family), and vague non-attack examples occasionally slip through mislabeled as injections. On top of that, every homogeneity pattern this set does NOT show was found by a human manually reading samples and then specifically prompting it away — the low overlap/clustering numbers describe a set curated against the *specific* patterns a reviewer happened to catch, not a natural sample of the generator's organic diversity. This model repeatedly demonstrated a strong tendency to converge on whatever template it was most recently steered toward; that tendency doesn't disappear because the instances we caught got fixed. A real, uncoached adversarial population has no one doing this curation — it would likely degrade the classifier more than this set shows, by more than the raw diversity numbers alone would imply.
 
-## Recall (detection rate) by source — the curve itself
+## Full results by source and model — recall, precision, and F1 together
 
-Recall is the one metric well-defined across every source, including the attack-only synthetic set (no benign counterpart exists there, so precision/F1 aren't computable without assuming one — not done here).
+Recall, precision, and F1 are shown side by side for every source, not recall alone in a headline table with precision demoted to a later section — that split previously made the flattering metric (recall) the first thing shown for AgentDojo while its far worse precision (0.27-0.30) stayed out of view. Precision/F1 are marked N/A for the synthetic buckets because they're attack-only by construction (Phase 7 generated injection examples only, no benign counterparts) — that's a structural gap in what's measurable, not a number being hidden.
 
-| Source | N | DeBERTa-v3-base | LightGBM | Ensemble |
-|---|---|---|---|---|
-| In-distribution test (InjecAgent) | 680 | 1.000 [0.989, 1.000] | 0.988 [0.970, 0.995] | 1.000 [0.989, 1.000] |
-| Held-out novel (AgentDojo) | 132 | 1.000 [0.901, 1.000] | 0.886 [0.740, 0.955] | 0.914 [0.776, 0.970] |
-| Synthetic, all (qwen3.5-9b) | 300 | 1.000 [0.987, 1.000] | 0.963 [0.936, 0.979] | 0.980 [0.957, 0.991] |
-| Synthetic, pretext subset | 14 | 1.000 [0.785, 1.000] | 1.000 [0.785, 1.000] | 1.000 [0.785, 1.000] |
-| Synthetic, non-pretext subset | 286 | 1.000 [0.987, 1.000] | 0.962 [0.932, 0.978] | 0.979 [0.955, 0.990] |
+| Source | N | Model | Recall (95% CI) | Precision (95% CI) | F1 (95% CI) |
+|---|---|---|---|---|---|
+| In-distribution test (InjecAgent) | 680 | DeBERTa-v3-base | 1.000 [0.989, 1.000] | 1.000 [0.989, 1.000] | 1.000 [1.000, 1.000] |
+| In-distribution test (InjecAgent) | 680 | LightGBM | 0.988 [0.970, 0.995] | 1.000 [0.989, 1.000] | 0.994 [0.988, 0.999] |
+| In-distribution test (InjecAgent) | 680 | Ensemble | 1.000 [0.989, 1.000] | 1.000 [0.989, 1.000] | 1.000 [1.000, 1.000] |
+| Held-out novel (AgentDojo) | 132 | DeBERTa-v3-base | 1.000 [0.901, 1.000] | 0.265 [0.197, 0.346] | 0.419 [0.318, 0.508] |
+| Held-out novel (AgentDojo) | 132 | LightGBM | 0.886 [0.740, 0.955] | 0.295 [0.216, 0.388] | 0.443 [0.331, 0.543] |
+| Held-out novel (AgentDojo) | 132 | Ensemble | 0.914 [0.776, 0.970] | 0.278 [0.205, 0.366] | 0.427 [0.324, 0.521] |
+| Synthetic, all (qwen3.5-9b) | 300 | DeBERTa-v3-base | 1.000 [0.987, 1.000] | N/A (attack-only) | N/A (attack-only) |
+| Synthetic, all (qwen3.5-9b) | 300 | LightGBM | 0.963 [0.936, 0.979] | N/A (attack-only) | N/A (attack-only) |
+| Synthetic, all (qwen3.5-9b) | 300 | Ensemble | 0.980 [0.957, 0.991] | N/A (attack-only) | N/A (attack-only) |
+| Synthetic, pretext subset | 14 | DeBERTa-v3-base | 1.000 [0.785, 1.000] | N/A (attack-only) | N/A (attack-only) |
+| Synthetic, pretext subset | 14 | LightGBM | 1.000 [0.785, 1.000] | N/A (attack-only) | N/A (attack-only) |
+| Synthetic, pretext subset | 14 | Ensemble | 1.000 [0.785, 1.000] | N/A (attack-only) | N/A (attack-only) |
+| Synthetic, non-pretext subset | 286 | DeBERTa-v3-base | 1.000 [0.987, 1.000] | N/A (attack-only) | N/A (attack-only) |
+| Synthetic, non-pretext subset | 286 | LightGBM | 0.962 [0.932, 0.978] | N/A (attack-only) | N/A (attack-only) |
+| Synthetic, non-pretext subset | 286 | Ensemble | 0.979 [0.955, 0.990] | N/A (attack-only) | N/A (attack-only) |
 
-**Read as a lower bound on real degradation, not an accurate estimate — likely understated by more than the numbers below alone would suggest.** Phase 7's synthetic set (current: Qwen3.5-9b, see docs/redteam_generation_report.md) still has disclosed weaknesses after iteration: obfuscation realism is weak (most 'obfuscated' examples skip the technique and produce clean prose instead), a small residual pretext cluster remains (~5% share a 'system recovery / priority override' family), and vague non-attack examples occasionally slip through mislabeled as injections. On top of that, every homogeneity pattern this set does NOT show was found by a human manually reading samples and then specifically prompting it away — the low overlap/clustering numbers describe a set curated against the *specific* patterns a reviewer happened to catch, not a natural sample of the generator's organic diversity. This model repeatedly demonstrated a strong tendency to converge on whatever template it was most recently steered toward; that tendency doesn't disappear because the instances we caught got fixed. A real, uncoached adversarial population has no one doing this curation — it would likely degrade the classifier more than this set shows, by more than the raw diversity numbers alone would imply.
-
-## Full metrics — sources with both classes (F1 / precision / recall, all with 95% CI)
-
-The synthetic set is attack-only by construction (Phase 7 generated injection examples only, no benign counterparts) — F1/precision aren't reported for it here for that reason, not omitted by oversight.
-
-### In-distribution test (InjecAgent) (N=680)
-
-| Model | F1 | Precision | Recall |
-|---|---|---|---|
-| DeBERTa-v3-base | 1.000 [1.000, 1.000] | 1.000 [0.989, 1.000] | 1.000 [0.989, 1.000] |
-| LightGBM | 0.994 [0.988, 0.999] | 1.000 [0.989, 1.000] | 0.988 [0.970, 0.995] |
-| Ensemble | 1.000 [1.000, 1.000] | 1.000 [0.989, 1.000] | 1.000 [0.989, 1.000] |
-
-### Held-out novel (AgentDojo) (N=132)
-
-| Model | F1 | Precision | Recall |
-|---|---|---|---|
-| DeBERTa-v3-base | 0.419 [0.318, 0.508] | 0.265 [0.197, 0.346] | 1.000 [0.901, 1.000] |
-| LightGBM | 0.443 [0.331, 0.543] | 0.295 [0.216, 0.388] | 0.886 [0.740, 0.955] |
-| Ensemble | 0.427 [0.324, 0.521] | 0.278 [0.205, 0.366] | 0.914 [0.776, 0.970] |
+**On the pretext-subset row (N=14): the 1.000 point estimate is not a confident finding.** 14 examples is too small a sample to draw a real conclusion from either way — the wide confidence interval already reflects that mathematically, but it's worth saying in words too, so the 1.000 isn't misread as evidence the pretext subset is definitively easier to detect than the rest. Treat the pretext-vs-non-pretext comparison as suggestive at best, not established.
 
 **Read as a lower bound on real degradation, not an accurate estimate — likely understated by more than the numbers below alone would suggest.** Phase 7's synthetic set (current: Qwen3.5-9b, see docs/redteam_generation_report.md) still has disclosed weaknesses after iteration: obfuscation realism is weak (most 'obfuscated' examples skip the technique and produce clean prose instead), a small residual pretext cluster remains (~5% share a 'system recovery / priority override' family), and vague non-attack examples occasionally slip through mislabeled as injections. On top of that, every homogeneity pattern this set does NOT show was found by a human manually reading samples and then specifically prompting it away — the low overlap/clustering numbers describe a set curated against the *specific* patterns a reviewer happened to catch, not a natural sample of the generator's organic diversity. This model repeatedly demonstrated a strong tendency to converge on whatever template it was most recently steered toward; that tendency doesn't disappear because the instances we caught got fixed. A real, uncoached adversarial population has no one doing this curation — it would likely degrade the classifier more than this set shows, by more than the raw diversity numbers alone would imply.
 
@@ -50,7 +40,21 @@ AgentDojo is *harder* for this classifier than the synthetic set: its ensemble r
 
 There's a second, more structural reason the synthetic-set numbers understate the problem: the synthetic set is attack-only, so recall is the *only* thing it can measure. AgentDojo's own results (F1 0.419-0.443 despite recall staying near 0.914) show the classifier's dominant real-world failure mode is **precision, not recall** — it over-flags benign content (precision 0.265-0.295 on AgentDojo) far more than it misses real attacks. A recall-only synthetic set cannot reveal that failure mode at all, regardless of how adversarial its attacks are, because it has no benign examples to false-positive on. This is a third, independent reason to treat the synthetic-set curve as optimistic, on top of the ones disclosed in Phase 7 — including the curation caveat above: the specific patterns keeping this set's homogeneity numbers low were found and removed by a human, not avoided naturally by the generator.
 
-Within the synthetic set, the pretext/non-pretext split shows recall of 1.000 on the pretext subset vs. 0.979 on the non-pretext subset — a small effect in the expected direction, and in either case far smaller than the gap between the synthetic set and AgentDojo. Source (real structurally-disjoint benchmark vs. LLM-generated attacks) matters far more than which subset of the synthetic set is used.
+Within the synthetic set, the pretext/non-pretext split shows recall of 1.000 on the pretext subset (N=14) vs. 0.979 on the non-pretext subset (N=286) — a small apparent effect in the expected direction, but the pretext subset is small enough (see the results table's note above) that this comparison shouldn't be read as an established finding either way, and it's far smaller than the gap between the synthetic set and AgentDojo regardless. Source (real structurally-disjoint benchmark vs. LLM-generated attacks) matters far more than which subset of the synthetic set is used.
+
+**Read as a lower bound on real degradation, not an accurate estimate — likely understated by more than the numbers below alone would suggest.** Phase 7's synthetic set (current: Qwen3.5-9b, see docs/redteam_generation_report.md) still has disclosed weaknesses after iteration: obfuscation realism is weak (most 'obfuscated' examples skip the technique and produce clean prose instead), a small residual pretext cluster remains (~5% share a 'system recovery / priority override' family), and vague non-attack examples occasionally slip through mislabeled as injections. On top of that, every homogeneity pattern this set does NOT show was found by a human manually reading samples and then specifically prompting it away — the low overlap/clustering numbers describe a set curated against the *specific* patterns a reviewer happened to catch, not a natural sample of the generator's organic diversity. This model repeatedly demonstrated a strong tendency to converge on whatever template it was most recently steered toward; that tendency doesn't disappear because the instances we caught got fixed. A real, uncoached adversarial population has no one doing this curation — it would likely degrade the classifier more than this set shows, by more than the raw diversity numbers alone would imply.
+
+## Cross-model comparison — is this actually independent of which red-teamer generated the data?
+
+Shown, not asserted: ensemble recall from this run (red-teamer: qwen3.5-9b) against the frozen first-run snapshot (red-teamer: qwen2.5-14b-instruct, `git show e86e987:docs/degradation_curve_report.md`).
+
+| Source | qwen2.5-14b-instruct recall | qwen3.5-9b recall | Same conclusion? |
+|---|---|---|---|
+| In-distribution test (InjecAgent) | 1.000 [0.989, 1.000] | 1.000 [0.989, 1.000] | Yes — CIs overlap |
+| Held-out novel (AgentDojo) | 0.914 [0.776, 0.970] | 0.914 [0.776, 0.970] | Yes — CIs overlap |
+| Synthetic, all | 0.997 [0.981, 0.999] | 0.980 [0.957, 0.991] | Yes — CIs overlap |
+
+The in-distribution-test and AgentDojo rows are identical or near-identical between runs by construction — neither bucket touches the red-team model at all, so agreement there is a consistency check on the pipeline, not evidence about the red-teamer. The synthetic-set row is the only one that actually depends on which model generated the data, and it's where the comparison matters: both runs land in the same range, both stay well above AgentDojo's recall, and both support the same qualitative reading (the synthetic set is easier for the classifier than the real held-out benchmark). That's what "confirmed independent of model" means here — not that the numbers are identical, but that the conclusion a reader would draw doesn't change depending on which of the two red-teamers produced the data.
 
 **Read as a lower bound on real degradation, not an accurate estimate — likely understated by more than the numbers below alone would suggest.** Phase 7's synthetic set (current: Qwen3.5-9b, see docs/redteam_generation_report.md) still has disclosed weaknesses after iteration: obfuscation realism is weak (most 'obfuscated' examples skip the technique and produce clean prose instead), a small residual pretext cluster remains (~5% share a 'system recovery / priority override' family), and vague non-attack examples occasionally slip through mislabeled as injections. On top of that, every homogeneity pattern this set does NOT show was found by a human manually reading samples and then specifically prompting it away — the low overlap/clustering numbers describe a set curated against the *specific* patterns a reviewer happened to catch, not a natural sample of the generator's organic diversity. This model repeatedly demonstrated a strong tendency to converge on whatever template it was most recently steered toward; that tendency doesn't disappear because the instances we caught got fixed. A real, uncoached adversarial population has no one doing this curation — it would likely degrade the classifier more than this set shows, by more than the raw diversity numbers alone would imply.
 
