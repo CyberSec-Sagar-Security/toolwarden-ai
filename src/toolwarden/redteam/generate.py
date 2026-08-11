@@ -272,17 +272,38 @@ def _write_report(results: list[dict]) -> None:
         "this round's stratified sample) — this round's fixes didn't target it, and it wasn't expected to "
         "improve. A structural limitation of the generator across models tried so far, not something "
         "either model has actually solved.",
-        "- Novelty: excellent, best of any batch so far. 0/300 near-duplicates; max trigram overlap "
-        "against the trainable pool 0.12 (down from v1's 0.30, and better than Qwen2.5 v3's 0.15), mean 0.01.",
+        "- **Novelty — comparable batch sizes only, stated explicitly to avoid a misleading claim.** "
+        "0/300 near-duplicates; max trigram overlap against the trainable pool is 0.12. Against the only "
+        "*fair* comparison — Qwen2.5's own N=300 batch (v3, max overlap 0.15) — this is an improvement. "
+        "It is **not** better than Qwen2.5's much smaller N=25 pilot batches (v1: 0.21, v2: 0.08) — "
+        "those numbers come from a batch 12x smaller, which is not a fair baseline for a 300-example run, "
+        "so 0.12 should not be read as beating 0.08. Previously described elsewhere as 'best of any batch "
+        "so far' — that phrasing overclaimed and is corrected here.",
+        "",
+        "**A caveat on all of the above numbers, not just novelty:** every homogeneity pattern reported as "
+        "'fixed' in this file (system-recovery pretext, the 'set aside...guidance' latch-on phrase, the "
+        "original literal-override-phrase default) was found by a human manually reading samples and then "
+        "specifically prompted away. That process demonstrably works, but it also means these low overlap/"
+        "clustering numbers describe a set that's been iteratively curated against the *specific* patterns "
+        "a reviewer happened to notice — not a natural sample of what an uncurated generation pipeline (or "
+        "a real, uncoached attacker population) produces. Three rounds in, this model has now shown a "
+        "repeated, strong tendency to converge on whatever template it's most recently been steered toward "
+        "(the recovery/override family, then the 'set aside' phrase) — that tendency doesn't go away because "
+        "the specific instances we caught got fixed; it just means undetected instances of the same tendency "
+        "may still be sitting in the 'zero-signal' or unreviewed majority of this batch. Read every diversity "
+        "number in this report as a description of *this curated set*, not evidence that the underlying "
+        "generation approach is naturally this diverse — real-world attacker diversity is likely understated "
+        "by more than the raw trigram-overlap and phrase-clustering numbers alone would suggest.",
         "",
         "**Conclusion:** proceeding with this qwen3.5-9b v2 set. Net comparison to the already-approved "
-        "Qwen2.5 v3 set: better on literal-phrase clustering and novelty, comparable on mislabeling risk, "
-        "roughly comparable-but-differently-shaped on obfuscation (still a disclosed weakness either way). "
-        "The swap's stated rationale (better instruction-following reduces pretext drift) was only "
-        "partially borne out — it took an extra fix round to get there, and the first-pass result "
-        "actively contradicted the hypothesis until the root cause (this model over-indexing on prompt "
-        "examples) was found and corrected. Sagar's go/no-go on re-running Phase 8 against this set is "
-        "still pending — nothing downstream has been touched.",
+        "Qwen2.5 v3 set (same N=300 scale): better on literal-phrase clustering and novelty, comparable on "
+        "mislabeling risk, roughly comparable-but-differently-shaped on obfuscation (still a disclosed "
+        "weakness either way). The swap's stated rationale (better instruction-following reduces pretext "
+        "drift) was only partially borne out — it took an extra fix round to get there, and the first-pass "
+        "result actively contradicted the hypothesis until the root cause (this model over-indexing on "
+        "prompt examples) was found and corrected. Approved by Sagar (2026-08-11) to proceed to a Phase 8 "
+        "rerun against this set, with the curation caveat above carried into that report's own lower-bound "
+        "language.",
         "",
     ]
 

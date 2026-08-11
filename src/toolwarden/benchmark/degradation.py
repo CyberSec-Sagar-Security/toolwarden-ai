@@ -1,15 +1,21 @@
 """Phase 8: the degradation curve — the project's headline artifact.
 
-Per Sagar's explicit execution notes (2026-08-11):
+Per Sagar's explicit execution notes (2026-08-11, reaffirmed after the
+Phase 7 Qwen3.5-9b swap):
 - Report degradation as SEPARATE numbers per source (held-out AgentDojo vs.
   synthetic set), not one blended curve.
-- Within the synthetic set, break out performance on the ~17% sharing the
-  "recent system/security update" pretext vs. the rest.
+- Within the synthetic set, break out performance on the pretext-homogeneity
+  subset vs. the rest (pattern/threshold tracks whichever red-teamer model
+  is currently active — see toolwarden.redteam.taxonomy for the regex).
 - Confidence interval on every point estimate.
 - The lower-bound caveat appears wherever the curve is shown, not just in
   a methods section.
 - PINT stays citation-only against ProtectAI's published number — never
   framed as an evaluation this project ran.
+
+Synthetic-set source and pretext pattern always track the CURRENT red-team
+model (imported from generate.py, not re-declared here) so this doesn't
+silently drift out of sync with whichever model Phase 7 last ran.
 
 Run with: python -m toolwarden.benchmark.degradation
 """
@@ -26,11 +32,11 @@ config.configure_hf_cache_env()
 from toolwarden.benchmark.stats import bootstrap_f1_ci, wilson_interval  # noqa: E402
 from toolwarden.classifier.data import LABEL2ID, load_records  # noqa: E402
 from toolwarden.classifier.evaluate import _deberta_probs, _lightgbm_probs, load_fitted_models  # noqa: E402
-from toolwarden.redteam.taxonomy import PRETEXT_RE  # noqa: E402
+from toolwarden.redteam.generate import MODEL_TAG, RAW_OUTPUT_PATH as SYNTHETIC_PATH  # noqa: E402
+from toolwarden.redteam.taxonomy import RECOVERY_OVERRIDE_PRETEXT_RE as PRETEXT_RE  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROCESSED_PATH = REPO_ROOT / "datasets" / "processed" / "records.jsonl"
-SYNTHETIC_PATH = REPO_ROOT / "datasets" / "raw" / "redteam_qwen" / "generated_attacks.jsonl"
 REPORT_PATH = REPO_ROOT / "docs" / "degradation_curve_report.md"
 CHART_PATH = REPO_ROOT / "docs" / "degradation_curve.png"
 
@@ -47,12 +53,20 @@ PROTECTAI_PINT_SOURCE = (
 )
 
 LOWER_BOUND_CAVEAT = (
-    "**Read as a lower bound on real degradation, not an accurate estimate.** Phase 7's synthetic "
-    "adversarial set has two disclosed weaknesses (docs/redteam_generation_report.md): pretext "
-    "homogeneity (~17% literally share a 'recent system/security update' opening, and a broader "
-    "version of that pattern runs through much of the rest) and weak obfuscation realism (leans on "
-    "leetspeak, not realistic evasion). A more diverse, more realistically obfuscated adversarial "
-    "population would likely degrade the classifier further than the numbers below show."
+    "**Read as a lower bound on real degradation, not an accurate estimate — likely understated by "
+    "more than the numbers below alone would suggest.** Phase 7's synthetic set (current: Qwen3.5-9b, "
+    "see docs/redteam_generation_report.md) still has disclosed weaknesses after iteration: obfuscation "
+    "realism is weak (most 'obfuscated' examples skip the technique and produce clean prose instead), "
+    "a small residual pretext cluster remains (~5% share a 'system recovery / priority override' "
+    "family), and vague non-attack examples occasionally slip through mislabeled as injections. On top "
+    "of that, every homogeneity pattern this set does NOT show was found by a human manually reading "
+    "samples and then specifically prompting it away — the low overlap/clustering numbers describe a "
+    "set curated against the *specific* patterns a reviewer happened to catch, not a natural sample of "
+    "the generator's organic diversity. This model repeatedly demonstrated a strong tendency to converge "
+    "on whatever template it was most recently steered toward; that tendency doesn't disappear because "
+    "the instances we caught got fixed. A real, uncoached adversarial population has no one doing this "
+    "curation — it would likely degrade the classifier more than this set shows, by more than the raw "
+    "diversity numbers alone would imply."
 )
 
 MODEL_COLORS = {"DeBERTa-v3-base": "#2a78d6", "LightGBM": "#eb6834", "Ensemble": "#1baf7a"}
@@ -168,7 +182,7 @@ def _make_chart(results: dict) -> None:
     bucket_labels = [
         "In-distribution\ntest (InjecAgent)",
         "Held-out novel\n(AgentDojo)",
-        "Synthetic\n(all, N=300)",
+        f"Synthetic\n({MODEL_TAG}, all)",
         "Synthetic\n(pretext subset)",
         "Synthetic\n(non-pretext subset)",
     ]
@@ -226,10 +240,10 @@ def _write_report(results: dict) -> str:
     lines = [
         "# Degradation Curve Benchmark (Phase 8)",
         "",
-        "The project's headline artifact: recall (detection rate) reported separately per source — "
-        "in-distribution, real-world held-out, and synthetic adversarial — never blended into one "
-        "number, per explicit instruction. Every point estimate carries a 95% confidence interval "
-        "(Wilson score for proportions, percentile bootstrap for F1). Generated by "
+        f"The project's headline artifact: recall (detection rate) reported separately per source — "
+        f"in-distribution, real-world held-out, and synthetic adversarial (red-teamer: {MODEL_TAG}) — "
+        "never blended into one number, per explicit instruction. Every point estimate carries a 95% "
+        "confidence interval (Wilson score for proportions, percentile bootstrap for F1). Generated by "
         "`src/toolwarden/benchmark/degradation.py`.",
         "",
         LOWER_BOUND_CAVEAT,
@@ -251,7 +265,7 @@ def _write_report(results: dict) -> str:
     bucket_labels = {
         "in_distribution_test": "In-distribution test (InjecAgent)",
         "agentdojo_held_out": "Held-out novel (AgentDojo)",
-        "synthetic_all": "Synthetic, all (N=300)",
+        "synthetic_all": f"Synthetic, all ({MODEL_TAG})",
         "synthetic_pretext": "Synthetic, pretext subset",
         "synthetic_non_pretext": "Synthetic, non-pretext subset",
     }
@@ -285,29 +299,62 @@ def _write_report(results: dict) -> str:
             )
         lines.append("")
 
+    ens = "Ensemble"
+    synth_recall = results["synthetic_all"][ens]["recall"]
+    agentdojo_recall = results["agentdojo_held_out"][ens]["recall"]
+    agentdojo_recall_lo, agentdojo_recall_hi = (
+        results["agentdojo_held_out"][ens]["recall_lo"],
+        results["agentdojo_held_out"][ens]["recall_hi"],
+    )
+    agentdojo_is_harder = agentdojo_recall < synth_recall
+    agentdojo_f1_lo = min(results["agentdojo_held_out"][m]["f1"] for m in MODEL_COLORS)
+    agentdojo_f1_hi = max(results["agentdojo_held_out"][m]["f1"] for m in MODEL_COLORS)
+    agentdojo_prec_lo = min(results["agentdojo_held_out"][m]["precision"] for m in MODEL_COLORS)
+    agentdojo_prec_hi = max(results["agentdojo_held_out"][m]["precision"] for m in MODEL_COLORS)
+    pretext_recall = results["synthetic_pretext"][ens]["recall"]
+    non_pretext_recall = results["synthetic_non_pretext"][ens]["recall"]
+
     lines += [
         LOWER_BOUND_CAVEAT,
         "",
         "## Interpretation",
         "",
-        "The lower-bound caveat isn't just a theoretical hedge — the numbers above confirm it directly. "
-        "Ensemble recall on the synthetic set (0.997) is *higher* than on AgentDojo (0.914, with a much "
-        "wider CI), even though the synthetic set was purpose-built to be adversarial. The real, "
-        "structurally-different held-out benchmark is harder for this classifier than 300 LLM-generated "
-        "attacks — exactly what the disclosed pretext-homogeneity and obfuscation-realism gaps predict.",
+        (
+            f"AgentDojo is *harder* for this classifier than the synthetic set: its ensemble recall "
+            f"({agentdojo_recall:.3f} [{agentdojo_recall_lo:.3f}, {agentdojo_recall_hi:.3f}]) sits below "
+            f"the synthetic set's ({synth_recall:.3f}). The real, structurally-different held-out "
+            f"benchmark is harder for this classifier than {results['synthetic_all'][ens]['n']} "
+            "LLM-generated attacks — exactly what the disclosed pretext-homogeneity, obfuscation-realism, "
+            "and curation gaps (see docs/redteam_generation_report.md) predict, and empirical confirmation "
+            "that the lower-bound caveat above is not just a theoretical hedge."
+            if agentdojo_is_harder
+            else f"AgentDojo's ensemble recall ({agentdojo_recall:.3f} [{agentdojo_recall_lo:.3f}, "
+            f"{agentdojo_recall_hi:.3f}]) is NOT below the synthetic set's ({synth_recall:.3f}) this run "
+            "— this does not reproduce the prior finding that the real benchmark is harder than the "
+            "synthetic one. Re-examine this claim rather than assuming the earlier narrative still holds; "
+            "the lower-bound caveat above may need rewording for this run specifically."
+        ),
         "",
         "There's a second, more structural reason the synthetic-set numbers understate the problem: the "
         "synthetic set is attack-only, so recall is the *only* thing it can measure. AgentDojo's own "
-        "results (F1 0.42-0.44 despite recall staying near 0.9-1.0) show the classifier's dominant "
-        "real-world failure mode is **precision, not recall** — it over-flags benign content (precision "
-        "0.27-0.30 on AgentDojo) far more than it misses real attacks. A recall-only synthetic set cannot "
-        "reveal that failure mode at all, regardless of how adversarial its attacks are, because it has "
-        "no benign examples to false-positive on. This is a third, independent reason to treat the "
-        "synthetic-set curve as optimistic, on top of the two disclosed in Phase 7.",
+        f"results (F1 {agentdojo_f1_lo:.3f}-{agentdojo_f1_hi:.3f} despite recall staying near "
+        f"{agentdojo_recall:.3f}) show the classifier's dominant real-world failure mode is "
+        f"**precision, not recall** — it over-flags benign content (precision {agentdojo_prec_lo:.3f}-"
+        f"{agentdojo_prec_hi:.3f} on AgentDojo) far more than it misses real attacks. A recall-only "
+        "synthetic set cannot reveal that failure mode at all, regardless of how adversarial its attacks "
+        "are, because it has no benign examples to false-positive on. This is a third, independent reason "
+        "to treat the synthetic-set curve as optimistic, on top of the ones disclosed in Phase 7 — including "
+        "the curation caveat above: the specific patterns keeping this set's homogeneity numbers low were "
+        "found and removed by a human, not avoided naturally by the generator.",
         "",
-        "Within the synthetic set, the pretext/non-pretext split shows a small effect in the expected "
-        "direction (pretext subset: 1.000 recall across all three models; non-pretext subset: 0.964-1.000) "
-        "— present, but far smaller than the gap between the synthetic set and AgentDojo. Source (real "
+        f"Within the synthetic set, the pretext/non-pretext split shows recall of {pretext_recall:.3f} on "
+        f"the pretext subset vs. {non_pretext_recall:.3f} on the non-pretext subset — "
+        + (
+            "a small effect in the expected direction, "
+            if pretext_recall >= non_pretext_recall
+            else "no effect, or a reversal of the expected direction — worth noting rather than glossing over, "
+        )
+        + "and in either case far smaller than the gap between the synthetic set and AgentDojo. Source (real "
         "structurally-disjoint benchmark vs. LLM-generated attacks) matters far more than which subset "
         "of the synthetic set is used.",
         "",
