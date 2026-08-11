@@ -6,17 +6,19 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 ## Status
 
-**Phase 8 (degradation curve benchmark) complete — this is the headline artifact.** See [docs/degradation_curve_report.md](docs/degradation_curve_report.md) and its chart. Recall reported separately per source (never blended), every point estimate with a 95% CI:
+**Local red-teamer swapped Qwen2.5-14B-Instruct → Qwen3.5-9B (2026-08-11)** for better instruction-following and full 8GB VRAM fit. Fresh two-round review (not inherited from the Qwen2.5 review) found real, disclosed issues along the way — see [docs/redteam_generation_report.md](docs/redteam_generation_report.md): the first pass actually showed *worse* pretext homogeneity than Qwen2.5 (37% vs. 17%), traced to the model over-indexing on example phrases in the prompt itself; fixed and reduced to 5%, with literal-phrase clustering down to 3% (vs. Qwen2.5's 18%) and best-yet novelty scores. Obfuscation-instruction-following improved but remains a disclosed weakness. **Holding at the Phase 7 stop gate for Sagar's go/no-go before rerunning Phase 8** against this new set.
+
+Phase 8's degradation curve (below) is **provisional** — built on the now-superseded Qwen2.5 red-team set, pending rerun:
 
 | Source | N | Ensemble recall (95% CI) |
 |---|---|---|
 | In-distribution test (InjecAgent) | 680 | 1.000 [0.989, 1.000] |
 | Held-out novel (AgentDojo) | 132 | 0.914 [0.776, 0.970] |
-| Synthetic adversarial (Qwen-generated, N=300) | 300 | 0.997 [0.981, 0.999] |
+| Synthetic adversarial (Qwen2.5-generated, N=300) | 300 | 0.997 [0.981, 0.999] |
 
-The synthetic set's high recall is itself a finding, not a good result: it's *higher* than AgentDojo's, empirically confirming the report's lower-bound caveat — the real, structurally-disjoint benchmark is harder for this classifier than 300 purpose-built adversarial examples. The classifier's dominant real-world failure mode is actually **precision**, not recall (AgentDojo precision: 0.27-0.30) — over-flagging benign content, which an attack-only synthetic set structurally cannot reveal. Full breakdown (per-model, pretext-subset vs. non-pretext, bootstrap/Wilson CIs) in the report. PINT is cited only (ProtectAI's published 79.14% score) — never framed as an evaluation this project ran, since PINT's real dataset isn't public (see docs/datasets.md).
+The synthetic set's high recall was itself a finding, not a good result: it's *higher* than AgentDojo's, empirically confirming the report's lower-bound caveat — the real, structurally-disjoint benchmark is harder for this classifier than 300 purpose-built adversarial examples. The classifier's dominant real-world failure mode is actually **precision**, not recall (AgentDojo precision: 0.27-0.30) — over-flagging benign content, which an attack-only synthetic set structurally cannot reveal. Full breakdown (per-model, pretext-subset vs. non-pretext, bootstrap/Wilson CIs) in [docs/degradation_curve_report.md](docs/degradation_curve_report.md). PINT is cited only (ProtectAI's published 79.14% score) — never framed as an evaluation this project ran, since PINT's real dataset isn't public (see docs/datasets.md).
 
-Phases 1-7 stand — see [docs/](docs/) for threat model, architecture, dataset assembly, classifier training, explainability, enforcement engine, and the red-teamer.
+Phases 1-6 stand — see [docs/](docs/) for threat model, architecture, dataset assembly, classifier training, explainability, and the enforcement engine.
 
 ## Scope
 
@@ -37,8 +39,9 @@ datasets/    dataset assembly scripts + (gitignored) data
 models/      model config/loading code only — actual weight files live outside this repo
 ```
 
-Model weight files (DeBERTa checkpoints, Qwen2.5 GGUF, LightGBM artifacts) are stored separately at
-`D:\CyberSecurity\Projects\Apps and Models\ToolWarden` and are never committed to this repo.
+Model weight files (DeBERTa checkpoints, local red-teamer GGUF, LightGBM artifacts) are stored separately at
+`D:\CyberSecurity\Projects\Apps and Models\ToolWarden\llm\` and are never committed to this repo. Both the
+current (Qwen3.5-9B) and superseded (Qwen2.5-14B-Instruct) GGUF files are kept there side by side.
 
 ## Setup
 
