@@ -50,9 +50,14 @@ from toolwarden.enforcement.policy import PolicyEngine  # noqa: E402
 from toolwarden.interceptor import Interceptor  # noqa: E402
 from toolwarden.logging_sink import JsonlFileSink  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-LOG_PATH = REPO_ROOT / "logs" / "demo_traffic.jsonl"
-APPROVAL_LOG_PATH = REPO_ROOT / "logs" / "demo_approvals.jsonl"
+# cwd-relative, not __file__-relative: this is a runnable script, not a
+# library module, so "logs/" should land wherever the caller ran it from.
+# A __file__-relative path resolves to the repo root in dev checkouts but
+# to somewhere inside site-packages for a pip-installed run (confirmed via
+# a real fresh-venv install during Phase 11's stop gate) — writing library
+# output into the venv's own package tree is wrong regardless of context.
+LOG_PATH = Path.cwd() / "logs" / "demo_traffic.jsonl"
+APPROVAL_LOG_PATH = Path.cwd() / "logs" / "demo_approvals.jsonl"
 
 MODEL = "gpt-4o-mini"
 

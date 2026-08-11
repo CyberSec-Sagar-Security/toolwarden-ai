@@ -8,6 +8,9 @@ models' own.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
@@ -35,3 +38,32 @@ class EnsembleStacker:
         """
         coef = self._model.coef_[0]
         return {"deberta_weight": float(coef[0]), "lightgbm_weight": float(coef[1]), "intercept": float(self._model.intercept_[0])}
+
+    def save(self, path: str | Path) -> None:
+        """Persists the fitted weights only (3 floats + classes_), not a
+        pickled sklearn object — avoids coupling a loaded classifier's
+        correctness to matching sklearn versions across the machine that
+        trained it and the machine that later just runs inference. See
+        load_fitted_models() in evaluate.py for why this matters: fitting
+        requires the processed training dataset, which is dev-only and not
+        distributed with the pip package, but loading a fitted classifier
+        for inference should not.
+        """
+        coef = self._model.coef_[0]
+        data = {
+            "deberta_weight": float(coef[0]),
+            "lightgbm_weight": float(coef[1]),
+            "intercept": float(self._model.intercept_[0]),
+            "classes": self._model.classes_.tolist(),
+        }
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: str | Path) -> "EnsembleStacker":
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        stacker = cls()
+        stacker._model.coef_ = np.array([[data["deberta_weight"], data["lightgbm_weight"]]])
+        stacker._model.intercept_ = np.array([data["intercept"]])
+        stacker._model.classes_ = np.array(data["classes"])
+        stacker._model.n_features_in_ = 2
+        return stacker

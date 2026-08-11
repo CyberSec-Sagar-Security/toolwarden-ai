@@ -74,30 +74,54 @@ def _fmt_metrics_row(name: str, m: dict[str, float]) -> str:
 
 
 def load_fitted_models():
-    """Loads the Phase 4 DeBERTa checkpoint + LightGBM booster, and fits an
-    EnsembleStacker on the same val slice evaluate.py and degradation.py
-    both use (carved from train only — see data.py). Shared here so Phase 8
-    doesn't duplicate the fit logic or risk it drifting out of sync.
+    """Loads the Phase 4 DeBERTa checkpoint + LightGBM booster, and the
+    EnsembleStacker fitted on the same val slice evaluate.py and
+    degradation.py both use (carved from train only — see data.py).
+
+    The stacker is loaded from config.STACKER_COEFFICIENTS_PATH if a fit
+    was already cached there (see ensemble.py's save/load — a small JSON
+    artifact, not a re-fit every call). First call on a machine that has
+    the processed training dataset fits fresh and caches it; a pip-installed
+    consumer's machine never has that dataset (dev-only, gitignored) and
+    isn't expected to — it just needs the cached fit to already exist under
+    TOOLWARDEN_MODEL_DIR, same as the DeBERTa checkpoint and LightGBM
+    booster it ships alongside. Refitting here would silently require every
+    caller (Phase 8's benchmark, Phase 9/10's demos, a downstream library
+    consumer) to also have the training data, which defeats the point of
+    packaging a trained classifier at all.
 
     Returns (tokenizer, model, booster, stacker).
     """
     import lightgbm as lgb
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-    records = load_records(PROCESSED_PATH)
-    _, val_records = train_fit_val_split(records)
-
     deberta_dir = config.DEBERTA_CHECKPOINT_DIR / "final"
     tokenizer = AutoTokenizer.from_pretrained(str(deberta_dir))
     model = AutoModelForSequenceClassification.from_pretrained(str(deberta_dir))
     booster = lgb.Booster(model_file=str(config.LIGHTGBM_MODEL_PATH))
 
-    val_deberta_probs = _deberta_probs(val_records, model, tokenizer)
-    val_lightgbm_probs = _lightgbm_probs(val_records, booster)
-    val_labels = [LABEL2ID[r["label"]] for r in val_records]
+    if config.STACKER_COEFFICIENTS_PATH.exists():
+        stacker = EnsembleStacker.load(config.STACKER_COEFFICIENTS_PATH)
+    else:
+        if not PROCESSED_PATH.exists():
+            raise FileNotFoundError(
+                f"No cached ensemble stacker at {config.STACKER_COEFFICIENTS_PATH}, and this repo's "
+                f"processed training dataset ({PROCESSED_PATH}) isn't available to fit one fresh. "
+                "If you're using toolwarden-ai as a library rather than training it: someone needs to "
+                "run this repo's Phase 3-4 pipeline once on a machine that has the training data so the "
+                "fitted stacker gets cached under TOOLWARDEN_MODEL_DIR/classifiers/lightgbm/"
+                "ensemble_stacker.json, then that file needs to travel with the rest of TOOLWARDEN_MODEL_DIR."
+            )
+        records = load_records(PROCESSED_PATH)
+        _, val_records = train_fit_val_split(records)
 
-    stacker = EnsembleStacker()
-    stacker.fit(val_deberta_probs, val_lightgbm_probs, val_labels)
+        val_deberta_probs = _deberta_probs(val_records, model, tokenizer)
+        val_lightgbm_probs = _lightgbm_probs(val_records, booster)
+        val_labels = [LABEL2ID[r["label"]] for r in val_records]
+
+        stacker = EnsembleStacker()
+        stacker.fit(val_deberta_probs, val_lightgbm_probs, val_labels)
+        stacker.save(config.STACKER_COEFFICIENTS_PATH)
 
     return tokenizer, model, booster, stacker
 

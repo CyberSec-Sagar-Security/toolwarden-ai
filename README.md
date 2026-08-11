@@ -8,6 +8,8 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 **Phase 11 (pip packaging) complete.** `src/toolwarden/__init__.py` now defines the actual public interface (`Classifier`, `PolicyEngine`, `EnforcementEngine`, `ApprovalQueue`, `Interceptor`, the direct-API adapter, and the supporting types) instead of leaving consumers to reach into internal submodules — importing it is cheap (no torch/transformers/lightgbm import as a side effect; see the module docstring). `pyproject.toml` now declares real runtime dependencies for `pip install toolwarden-ai`, split from `requirements.txt`'s exact training-environment pins, with `mcp`/`dev`/`train` as optional extras.
 
+**Stop gate verified literally, not just described:** built the wheel, installed it into a brand-new venv outside this repo, and ran Phase 9's guarded demo loop using only what that install provides. This caught two real bugs a same-repo test would have missed entirely — both fixed before this phase closed: (1) `load_fitted_models()` was re-fitting the ensemble stacker from this repo's gitignored training dataset on *every* call, which a real install can never have; fixed by persisting the fitted stacker as a small JSON artifact (`EnsembleStacker.save`/`load` in `src/toolwarden/classifier/ensemble.py`) instead of re-deriving it, verified byte-identical to the pre-fix scores. (2) the demo scripts' log paths were computed relative to `__file__`, which resolves into the venv's own `site-packages` tree for an installed run instead of somewhere sensible; fixed to resolve relative to the caller's working directory instead. Full fresh-install run (all three scenarios, real OpenAI calls) reproduced byte-identical classifier scores to the dev-checkout run.
+
 Added `detector_mode` to `Classifier` (`"ensemble"` default, `"deberta_only"` available) — a direct, quantified response to the ensemble-combination ablation below: the fitted stacker weighs LightGBM almost as heavily as DeBERTa (deberta_weight≈3.807, lightgbm_weight≈3.791) despite LightGBM being measurably less reliable on held-out data, which suppresses real attacks DeBERTa alone would have caught (3/35 on AgentDojo, 6/300 on the synthetic set — see [docs/degradation_curve_report.md](docs/degradation_curve_report.md)'s "Ensemble-combination ablation" section). The stacker itself isn't retrained yet — that needs a third calibration split that's never touched either benchmark, scoped as its own task (see [docs/known_limitations.md](docs/known_limitations.md)) — `deberta_only` gives a documented way to opt out of the failure mode today, at the cost of LightGBM's contribution entirely rather than a partial reweighting.
 
 **Phase 10 (MCP proxy layer) complete** — see [docs/mcp_proxy_walkthrough.md](docs/mcp_proxy_walkthrough.md). The same enforcement pipeline from Phase 9 (`Classifier`, `PolicyEngine`, `EnforcementEngine`, `ApprovalQueue`, `Interceptor` — reused, not rebuilt) wired into MCP's `on_call_tool` handler (`src/toolwarden/mcp_proxy/server.py`) instead of an inline OpenAI tool-calling loop. Enforcement now runs server-side: the client-side agent loop (`src/toolwarden/mcp_proxy/agent_loop.py`) never imports the classifier or policy engine directly, only sees what a real MCP client would see. Same three scenarios as Phase 9, run through the second locked integration adapter — proves the detection/enforcement behavior isn't an artifact of one protocol.
@@ -62,7 +64,19 @@ pip install toolwarden-ai
 pip install "toolwarden-ai[mcp]"   # only if you're using the MCP adapter
 ```
 
-Requires a trained classifier checkpoint under `TOOLWARDEN_MODEL_DIR` (see `src/toolwarden/config.py`) — this project doesn't publish pretrained weights yet; Phase 4's checkpoint is currently a local artifact, not distributed. Minimal usage:
+**Pointing at your own model files:** set the `TOOLWARDEN_MODEL_DIR` environment variable to a directory containing (see `src/toolwarden/config.py` for the exact expected layout):
+
+```
+classifiers/deberta-v3-base-toolwarden/final/   # the fine-tuned DeBERTa checkpoint
+classifiers/lightgbm/lightgbm_model.txt         # the trained LightGBM booster
+classifiers/lightgbm/ensemble_stacker.json       # the fitted ensemble stacker's weights (3 floats)
+```
+
+If unset, it defaults to a path specific to this project's own dev machine — it will not resolve on your machine, so setting it is required, not optional. `ensemble_stacker.json` in particular has to be generated once by someone with this repo's processed training dataset (dev-only, not distributed — `load_fitted_models()` in `src/toolwarden/classifier/evaluate.py` fits it fresh and caches it there the first time it's called in a dev checkout) and then travel with the rest of the directory; without it, `Classifier(detector_mode="ensemble")` raises a `FileNotFoundError` with next steps rather than failing silently. This project doesn't publish pretrained weights yet — Phase 4's checkpoint is currently a local artifact, not distributed.
+
+**GPU vs. CPU:** the base install's `torch` dependency has no pinned CUDA build (a downstream consumer's hardware/driver setup is outside this project's control — see `pyproject.toml`'s comment), so `pip install toolwarden-ai` alone resolves a CPU-only `torch` wheel from PyPI. This is sufficient to actually run inference (verified via a fresh install with no extras) — just slower than the CUDA build this repo's own `requirements.txt` pins for training. For GPU-accelerated inference, install a CUDA-matched `torch` build yourself (see [pytorch.org/get-started](https://pytorch.org/get-started/locally/)) before or after installing `toolwarden-ai`.
+
+Minimal usage:
 
 ```python
 from toolwarden import ApprovalQueue, Classifier, Direction, EnforcementEngine, JsonlFileSink, PolicyEngine

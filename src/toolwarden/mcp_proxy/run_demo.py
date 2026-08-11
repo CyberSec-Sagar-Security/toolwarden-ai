@@ -49,9 +49,11 @@ from toolwarden.logging_sink import JsonlFileSink  # noqa: E402
 from toolwarden.mcp_proxy.agent_loop import MCPToolLoop  # noqa: E402
 from toolwarden.mcp_proxy.server import GuardedMCPServer  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-LOG_PATH = REPO_ROOT / "logs" / "mcp_demo_traffic.jsonl"
-APPROVAL_LOG_PATH = REPO_ROOT / "logs" / "mcp_demo_approvals.jsonl"
+# cwd-relative, not __file__-relative -- see demo/run_demo.py's identical
+# comment: a __file__-relative path resolves to somewhere inside
+# site-packages for a pip-installed run, not a sensible log location.
+LOG_PATH = Path.cwd() / "logs" / "mcp_demo_traffic.jsonl"
+APPROVAL_LOG_PATH = Path.cwd() / "logs" / "mcp_demo_approvals.jsonl"
 
 MODEL = "gpt-4o-mini"
 
