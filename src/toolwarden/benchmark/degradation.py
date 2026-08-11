@@ -143,7 +143,38 @@ def _fmt_ci(point: float, lo: float, hi: float) -> str:
     return f"{point:.3f} [{lo:.3f}, {hi:.3f}]"
 
 
-def run_benchmark() -> dict:
+def _combination_ablation(
+    recs: list[dict], labels: list[int], deberta_probs: list[float], lightgbm_probs: list[float], ensemble_probs: list[float]
+) -> dict:
+    """Quantifies, not just characterizes, whether the stacker dilutes a
+    correct DeBERTa signal: among the real attacks (label==1) DeBERTa alone
+    flags correctly, how many does the combined ensemble score push back
+    under threshold. A paired comparison on the exact same records is
+    stronger evidence than comparing two aggregate recall CIs, which can
+    look ambiguous (overlapping) even when the underlying cause-and-effect
+    is a direct, traceable chain for specific records.
+    """
+    n_pos = sum(1 for y in labels if y == 1)
+    deberta_hits = [i for i, (y, d) in enumerate(zip(labels, deberta_probs)) if y == 1 and d >= THRESHOLD]
+    missed_by_ensemble = [i for i in deberta_hits if ensemble_probs[i] < THRESHOLD]
+    examples = [
+        {
+            "text": recs[i]["text"][:100],
+            "deberta": deberta_probs[i],
+            "lightgbm": lightgbm_probs[i],
+            "ensemble": ensemble_probs[i],
+        }
+        for i in missed_by_ensemble[:3]
+    ]
+    return {
+        "n_pos": n_pos,
+        "deberta_caught": len(deberta_hits),
+        "ensemble_missed_of_deberta_caught": len(missed_by_ensemble),
+        "examples": examples,
+    }
+
+
+def run_benchmark() -> tuple[dict, dict, dict]:
     tokenizer, model, booster, stacker = load_fitted_models()
 
     records = load_records(PROCESSED_PATH)
@@ -163,6 +194,7 @@ def run_benchmark() -> dict:
     attack_only_buckets = {"synthetic_all", "synthetic_pretext", "synthetic_non_pretext"}
 
     results: dict[str, dict] = {}
+    ablation: dict[str, dict] = {}
     for name, recs in buckets.items():
         deberta_probs = _deberta_probs(recs, model, tokenizer)
         lightgbm_probs = _lightgbm_probs(recs, booster)
@@ -179,8 +211,9 @@ def run_benchmark() -> dict:
             "LightGBM": metric_fn(labels, lightgbm_probs),
             "Ensemble": metric_fn(labels, ensemble_probs),
         }
+        ablation[name] = _combination_ablation(recs, labels, deberta_probs, lightgbm_probs, ensemble_probs)
 
-    return results
+    return results, ablation, stacker.coefficients()
 
 
 def _make_chart(results: dict) -> None:
@@ -250,7 +283,83 @@ def _make_chart(results: dict) -> None:
     plt.close(fig)
 
 
-def _write_report(results: dict) -> str:
+def _write_ablation_section(ablation: dict, stacker_coef: dict) -> list[str]:
+    """Sagar's explicit ask (2026-08-11), before Phase 11: quantify — not
+    just characterize on hand-picked pairs — whether the ensemble's
+    combination logic is naively diluting a correct DeBERTa signal on real
+    held-out attacks. Computed from _combination_ablation()'s paired
+    per-record comparison, not hardcoded from a one-off script run.
+    """
+    lines = [
+        "## Ensemble-combination ablation — is DeBERTa-alone actually better on real attacks?",
+        "",
+        "`docs/known_limitations.md`'s \"Root cause, investigated not assumed\" section found this pattern "
+        "on a handful of hand-picked pairs: DeBERTa correctly and confidently flags an injection, LightGBM "
+        "confidently scores the same text as benign, and the combined ensemble score lands below the "
+        "hold/block boundary as a result. That was a real finding, but on a small, manually-selected "
+        "sample — not yet quantified against the actual held-out benchmarks this project's headline "
+        "numbers are drawn from. This section closes that gap: for every real attack (label==1) in "
+        "AgentDojo held-out and the synthetic set that DeBERTa alone correctly flags, how many does the "
+        "ensemble's combination score push back under the 0.5 classification threshold.",
+        "",
+        "**Why a paired comparison, not just eyeballing the recall CIs above:** DeBERTa-alone's recall CI "
+        "and the ensemble's recall CI overlap on both sources — read as two independent aggregate numbers, "
+        "that could look like \"no real difference, just noise.\" Tracing the *same specific records* "
+        "shows this isn't noise: it's a direct, traceable chain — DeBERTa flags a specific record "
+        "correctly, LightGBM confidently doesn't, the stacker's combination drags that specific record's "
+        "score under threshold. A paired comparison on matched records is stronger evidence than comparing "
+        "two marginal confidence intervals.",
+        "",
+        "| Source | Real attacks (N) | DeBERTa-alone caught | Ensemble missed (of DeBERTa's catches) | Missed rate |",
+        "|---|---|---|---|---|",
+    ]
+
+    bucket_labels = {"agentdojo_held_out": "Held-out novel (AgentDojo)", "synthetic_all": "Synthetic, all"}
+    for key, label in bucket_labels.items():
+        a = ablation[key]
+        rate = a["ensemble_missed_of_deberta_caught"] / a["deberta_caught"] if a["deberta_caught"] else 0.0
+        lines.append(
+            f"| {label} | {a['n_pos']} | {a['deberta_caught']} | {a['ensemble_missed_of_deberta_caught']} | {rate:.1%} |"
+        )
+
+    lines += [
+        "",
+        "Concrete examples — real attacks DeBERTa flags with high confidence that the ensemble's combined "
+        "score pushes back under threshold:",
+        "",
+        "| Source | Text | DeBERTa | LightGBM | Ensemble |",
+        "|---|---|---|---|---|",
+    ]
+    for key, label in bucket_labels.items():
+        for ex in ablation[key]["examples"]:
+            lines.append(f"| {label} | {ex['text']!r} | {ex['deberta']:.3f} | {ex['lightgbm']:.3f} | {ex['ensemble']:.3f} |")
+
+    agentdojo_prec = "In the AgentDojo comparison (the only bucket here with measurable precision, since the synthetic set is attack-only): DeBERTa-alone's precision/F1 confidence intervals overlap heavily with the ensemble's and LightGBM's — this project's sample size (N=132, 35 positives) cannot distinguish them on precision. The recall gap above is not offset by a demonstrated precision cost; it's a real, currently-uncompensated loss of true positives on real attacks."
+
+    lines += [
+        "",
+        f"**Is the combination logic naive?** The stacker is a fitted 2-feature logistic regression "
+        f"(`src/toolwarden/classifier/ensemble.py`'s `EnsembleStacker`), not a literal average — but its "
+        f"fitted weights are functionally close to one: deberta_weight={stacker_coef['deberta_weight']:.3f}, "
+        f"lightgbm_weight={stacker_coef['lightgbm_weight']:.3f} (intercept={stacker_coef['intercept']:.3f}). "
+        "Despite LightGBM being measurably less reliable than DeBERTa on both held-out sources above, the "
+        "stacker trusts them almost equally. The likely cause: the stacker is fit on a validation slice "
+        "carved from the *training* distribution (InjecAgent), where both base models score near-perfectly "
+        "(see the in-distribution-test row of the main results table) — the meta-learner never saw the "
+        "distribution shift where LightGBM's coarse features become unreliable, so it had no training "
+        "signal to learn to distrust LightGBM under exactly the conditions where it should. This is a "
+        "'fixable' design choice in the sense that a stacker calibrated on out-of-distribution data (or a "
+        "non-learned override rule, e.g. trusting a high-confidence DeBERTa score directly) could plausibly "
+        "recover these missed attacks — untried, and a real behavior change to a component the rest of "
+        "this project's numbers depend on, so not applied here without review.",
+        "",
+        agentdojo_prec,
+        "",
+    ]
+    return lines
+
+
+def _write_report(results: dict, ablation: dict, stacker_coef: dict) -> str:
     lines = [
         "# Degradation Curve Benchmark (Phase 8)",
         "",
@@ -374,6 +483,7 @@ def _write_report(results: dict) -> str:
         "",
         LOWER_BOUND_CAVEAT,
         "",
+        *_write_ablation_section(ablation, stacker_coef),
         "## Cross-model comparison — is this actually independent of which red-teamer generated the data?",
         "",
         "Shown, not asserted: ensemble recall from this run (red-teamer: "
@@ -435,9 +545,9 @@ def _write_report(results: dict) -> str:
 
 
 def main() -> None:
-    results = run_benchmark()
+    results, ablation, stacker_coef = run_benchmark()
     _make_chart(results)
-    report = _write_report(results)
+    report = _write_report(results, ablation, stacker_coef)
     REPORT_PATH.write_text(report, encoding="utf-8")
     print(report)
     print(f"\nChart: {CHART_PATH}")

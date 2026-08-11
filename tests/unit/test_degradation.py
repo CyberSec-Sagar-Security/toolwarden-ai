@@ -1,4 +1,4 @@
-from toolwarden.benchmark.degradation import _full_metrics, _recall_only, _split_pretext
+from toolwarden.benchmark.degradation import _combination_ablation, _full_metrics, _recall_only, _split_pretext
 
 
 def test_split_pretext_separates_correctly():
@@ -70,3 +70,31 @@ def test_full_metrics_zero_positives_does_not_crash():
 
     assert result["recall"] == 0.0
     assert result["precision"] == 0.0
+
+
+def test_combination_ablation_counts_attacks_deberta_catches_that_ensemble_drops():
+    recs = [{"text": "attack A"}, {"text": "attack B"}, {"text": "benign C"}, {"text": "attack D"}]
+    labels = [1, 1, 0, 1]
+    deberta_probs = [0.9, 0.85, 0.1, 0.95]  # correctly flags all 3 real attacks
+    lightgbm_probs = [0.02, 0.9, 0.05, 0.02]  # wrong on A and D, right on B
+    ensemble_probs = [0.4, 0.92, 0.08, 0.45]  # A and D dragged back under threshold, B stays caught
+
+    result = _combination_ablation(recs, labels, deberta_probs, lightgbm_probs, ensemble_probs)
+
+    assert result["n_pos"] == 3
+    assert result["deberta_caught"] == 3
+    assert result["ensemble_missed_of_deberta_caught"] == 2
+    assert {ex["text"] for ex in result["examples"]} == {"attack A", "attack D"}
+
+
+def test_combination_ablation_zero_missed_when_ensemble_agrees_with_deberta():
+    recs = [{"text": "attack A"}]
+    labels = [1]
+    deberta_probs = [0.9]
+    lightgbm_probs = [0.8]
+    ensemble_probs = [0.85]
+
+    result = _combination_ablation(recs, labels, deberta_probs, lightgbm_probs, ensemble_probs)
+
+    assert result["ensemble_missed_of_deberta_caught"] == 0
+    assert result["examples"] == []
