@@ -27,3 +27,9 @@ protobuf==7.35.1
 datasets==5.0.1
 shap==0.52.0
 matplotlib==3.11.1
+# Phase 10's second locked integration adapter (build spec: direct API
+# function-calling + MCP). 2.0.0 is a deliberate stable major release, not
+# a bleeding-edge jump (checked release notes before pinning, same
+# discipline as the transformers 5.x call above) — this pin is a
+# considered choice, not the newest tag available.
+mcp[cli]==2.0.0
