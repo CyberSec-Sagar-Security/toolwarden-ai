@@ -1,0 +1,50 @@
+# Phase 12: db + backend + frontend. CPU-first by design -- GPU passthrough
+# (docker-compose.gpu.yml) is layered on top as its own checkpoint, not a
+# blocker for this stack coming up. See docs/docker_walkthrough.md.
+#
+# Requires TOOLWARDEN_MODEL_DIR set in the shell (or in a .env file in this
+# directory) to the host directory holding the trained model artifacts --
+# bind-mounted read-only into the backend container, never baked into the
+# image (see docker/backend.Dockerfile).
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: toolwarden
+      POSTGRES_PASSWORD: toolwarden
+      POSTGRES_DB: toolwarden
+    volumes:
+      - toolwarden_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U toolwarden"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TOOLWARDEN_DATABASE_URL: postgresql://toolwarden:toolwarden@db:5432/toolwarden
+      TOOLWARDEN_DETECTOR_MODE: ${TOOLWARDEN_DETECTOR_MODE:-ensemble}
+    volumes:
+      - ${TOOLWARDEN_MODEL_DIR}:/models:ro
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  toolwarden_pgdata:

@@ -11,6 +11,7 @@ Run with: python -m toolwarden.classifier.evaluate
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from toolwarden import config
@@ -24,7 +25,6 @@ from toolwarden.classifier.lightgbm_model import records_to_xy  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROCESSED_PATH = REPO_ROOT / "datasets" / "processed" / "records.jsonl"
 REPORT_PATH = REPO_ROOT / "docs" / "classifier_report.md"
-
 
 def _deberta_probs(records: list[dict], model, tokenizer) -> list[float]:
     import torch
@@ -90,14 +90,42 @@ def load_fitted_models():
     consumer) to also have the training data, which defeats the point of
     packaging a trained classifier at all.
 
+    Moves the DeBERTa model to CUDA when TOOLWARDEN_USE_GPU=1 is set AND a
+    GPU is actually available -- `from_pretrained` alone always loads onto
+    CPU regardless of what the hardware supports. Caught via Phase 12's
+    GPU-passthrough checkpoint: `torch.cuda.is_available()` was True inside
+    the GPU-enabled backend container, but the model itself stayed on CPU
+    because nothing ever moved it -- "the container can see a GPU" and
+    "inference actually uses it" turned out to be two different,
+    separately-checkable claims.
+
+    Deliberately opt-in, not automatic on every CUDA-capable machine:
+    this dev machine has a GPU too, and CPU vs. GPU floating-point kernels
+    are not bit-identical (verified directly: the same text's ensemble
+    score differed at the 7th-8th decimal place between the two on this
+    exact hardware). Every score reported anywhere in this project so far
+    (docs/classifier_report.md, docs/degradation_curve_report.md, every
+    docstring citing a specific decimal score) was computed on CPU, since
+    nothing moved the eval model to GPU before this phase. Auto-switching
+    the default here would silently perturb those numbers on the next
+    rerun -- opt-in preserves that reproducibility while still giving the
+    Docker GPU checkpoint (docker-compose.gpu.yml sets this env var) a
+    real, working, separately-verified path to actual GPU-accelerated
+    inference. _deberta_probs() already reads the model's own device for
+    its input tensors, so this one change is sufficient either way;
+    nothing else needs to know or care which device is in use.
+
     Returns (tokenizer, model, booster, stacker).
     """
     import lightgbm as lgb
+    import torch
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     deberta_dir = config.DEBERTA_CHECKPOINT_DIR / "final"
     tokenizer = AutoTokenizer.from_pretrained(str(deberta_dir))
     model = AutoModelForSequenceClassification.from_pretrained(str(deberta_dir))
+    if os.environ.get("TOOLWARDEN_USE_GPU") == "1" and torch.cuda.is_available():
+        model = model.to("cuda")
     booster = lgb.Booster(model_file=str(config.LIGHTGBM_MODEL_PATH))
 
     if config.STACKER_COEFFICIENTS_PATH.exists():

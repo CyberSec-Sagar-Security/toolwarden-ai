@@ -1,0 +1,25 @@
+# GPU passthrough checkpoint (Phase 12, layered on top of docker-compose.yml,
+# not a replacement for it): reserves the host GPU for the backend
+# container via the NVIDIA Container Toolkit. Requires the toolkit
+# installed on the host (WSL2 on Windows) -- see docs/docker_walkthrough.md
+# for the verification steps actually run for this project.
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+
+services:
+  backend:
+    build:
+      dockerfile: docker/backend.gpu.Dockerfile
+    environment:
+      # Opt-in, not automatic (see load_fitted_models()'s docstring,
+      # evaluate.py): CPU and GPU floating-point kernels aren't
+      # bit-identical, so this only activates where explicitly requested,
+      # never silently on any CUDA-capable machine.
+      TOOLWARDEN_USE_GPU: "1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

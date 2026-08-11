@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>ToolWarden AI</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header>
+  <h1>ToolWarden AI</h1>
+  <p class="subtitle">Interception firewall — pending approvals and recent tool-call traffic</p>
+</header>
+
+<nav>
+  <button class="tab-btn active" data-tab="approvals">Pending Approvals <span id="pending-count" class="badge">0</span></button>
+  <button class="tab-btn" data-tab="traffic">Traffic</button>
+</nav>
+
+<main>
+  <section id="approvals-tab" class="tab-panel active">
+    <p class="hint">Actions held for human review (mid-confidence classifier score). Every resolution is attributed and logged.</p>
+    <table id="approvals-table">
+      <thead>
+        <tr><th>Direction</th><th>Score</th><th>Reason</th><th>Payload</th><th>Resolve</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p id="approvals-empty" class="empty" hidden>No pending approvals.</p>
+  </section>
+
+  <section id="traffic-tab" class="tab-panel">
+    <p class="hint">Most recent intercepted tool-call requests and results, newest first.</p>
+    <table id="traffic-table">
+      <thead>
+        <tr><th>Event</th><th>Tool</th><th>Detail</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+</main>
+
+<div id="resolve-dialog" class="dialog" hidden>
+  <div class="dialog-box">
+    <h2>Resolve approval</h2>
+    <p id="resolve-summary"></p>
+    <label>Decision
+      <select id="resolve-decision">
+        <option value="approved">Approve</option>
+        <option value="denied">Deny</option>
+      </select>
+    </label>
+    <label>Decided by (required)
+      <input id="resolve-decided-by" type="text" placeholder="your name" />
+    </label>
+    <label>Notes
+      <input id="resolve-notes" type="text" placeholder="optional" />
+    </label>
+    <div class="dialog-actions">
+      <button id="resolve-cancel">Cancel</button>
+      <button id="resolve-confirm" class="primary">Submit</button>
+    </div>
+    <p id="resolve-error" class="error"></p>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

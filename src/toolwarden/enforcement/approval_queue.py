@@ -67,6 +67,19 @@ class AlreadyResolvedError(RuntimeError):
     pass
 
 
+def resolution_to_decision(record: ApprovalRecord) -> Decision:
+    """Maps a human resolution back to the same Decision vocabulary the
+    policy engine uses, so callers don't need two different result types.
+    A free function, not just a method on ApprovalQueue, so Phase 12's
+    PostgresApprovalQueue (src/toolwarden/service/postgres_approval_queue.py)
+    shares the exact same mapping instead of a second definition risking
+    drift between the in-memory and Postgres-backed implementations.
+    """
+    if record.decision is ApprovalDecision.DENIED:
+        return Decision.BLOCK if record.direction is Direction.REQUEST else Decision.QUARANTINE
+    return Decision.ALLOW
+
+
 class ApprovalQueue:
     """Pending items live in-memory (this is a library, not a service yet —
     Phase 12 moves this to Postgres). Resolutions are always appended to
@@ -104,9 +117,4 @@ class ApprovalQueue:
         return record
 
     def outcome_for(self, record: ApprovalRecord) -> Decision:
-        """Maps a human resolution back to the same Decision vocabulary the
-        policy engine uses, so callers don't need two different result types.
-        """
-        if record.decision is ApprovalDecision.DENIED:
-            return Decision.BLOCK if record.direction is Direction.REQUEST else Decision.QUARANTINE
-        return Decision.ALLOW
+        return resolution_to_decision(record)

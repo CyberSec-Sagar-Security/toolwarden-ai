@@ -33,6 +33,9 @@ dependencies = [
 # The MCP adapter (toolwarden.mcp_proxy) -- not re-exported from the top-level
 # package precisely so this stays optional (see src/toolwarden/__init__.py).
 mcp = ["mcp[cli]==2.0.0"]
+# Phase 12's FastAPI backend (toolwarden.service) -- only needed to run the
+# deployable HTTP service, not to use toolwarden as a library.
+service = ["fastapi==0.141.1", "uvicorn[standard]==0.52.1", "psycopg[binary]==3.3.4", "psycopg_pool==3.3.1"]
 # This repo's own dev tooling, not needed to use the library.
 dev = ["pytest==8.3.4", "ruff==0.8.4"]
 # Training/benchmarking/red-teaming this repo's own classifier from scratch --
@@ -41,6 +44,16 @@ train = ["agentdojo==0.1.35", "accelerate==1.14.0", "datasets==5.0.1", "shap==0.
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# setuptools doesn't bundle non-.py files by default -- schema.sql (Phase
+# 12's Postgres schema, loaded at runtime via Path(__file__).with_name(...)
+# in service/db.py) needs to actually ship inside the installed package,
+# not just exist in the source tree. Caught via a real `docker build` +
+# container run, not assumed correct (same discipline as Phase 11's
+# fresh-venv verification): the backend container crashed on startup with
+# a FileNotFoundError for this exact file before this was added.
+[tool.setuptools.package-data]
+"toolwarden.service" = ["*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
