@@ -6,7 +6,7 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 ## Status
 
-**Phase 12 (Docker Compose app) complete** — see [docs/docker_walkthrough.md](docs/docker_walkthrough.md). `db` (Postgres) + `backend` (FastAPI) + `frontend` (a no-build-step dashboard) — same enforcement pipeline as every earlier phase, reused unmodified, now reachable over HTTP instead of only as a Python import. The one real architectural difference: a HOLD can't block an HTTP request waiting for a human the way the demos' synchronous `on_hold()` callback does, so it returns immediately with a `pending_id` and a reviewer resolves it later via the dashboard — the honest shape of an async approval workflow, not a simplified callback. Model weights are bind-mounted into the backend container, never baked into the image; GPU passthrough (`docker-compose.gpu.yml`) is layered on top as its own verified checkpoint, not a blocker for the base stack. Verified literally end to end: real `docker compose up`, real HTTP requests against the running containers, byte-identical classifier scores to every earlier phase's verification. That verification caught three real packaging bugs (a missing `schema.sql` in the installed package, a missing system library LightGBM needs, an unhandled malformed-ID crash) — all fixed, all documented in the walkthrough rather than smoothed over.
+**Phase 12 (Docker Compose app) complete** — see [docs/docker_walkthrough.md](docs/docker_walkthrough.md). `db` (Postgres) + `backend` (FastAPI) + `frontend` (a no-build-step dashboard) — same enforcement pipeline as every earlier phase, reused unmodified, now reachable over HTTP instead of only as a Python import. The one real architectural difference: a HOLD can't block an HTTP request waiting for a human the way the demos' synchronous `on_hold()` callback does, so it returns immediately with a `pending_id` and a reviewer resolves it later via the dashboard — the honest shape of an async approval workflow, not a simplified callback. Model weights are bind-mounted into the backend container, never baked into the image; GPU passthrough (`docker-compose.gpu.yml`) is layered on top as its own verified checkpoint, not a blocker for the base stack. Verified literally end to end: real `docker compose up`, real HTTP requests against the running containers, byte-identical classifier scores to every earlier phase's verification. That verification caught four real bugs (a missing `schema.sql` in the installed package, a missing system library LightGBM needs, an unhandled malformed-ID crash, and — the GPU checkpoint's own trap — `torch.cuda.is_available()` being `True` inside the "GPU-enabled" container didn't mean inference actually used the GPU, since nothing ever moved the model off CPU) — all fixed, all documented in the walkthrough rather than smoothed over.
 
 **Phase 11 (pip packaging) complete.** `src/toolwarden/__init__.py` now defines the actual public interface (`Classifier`, `PolicyEngine`, `EnforcementEngine`, `ApprovalQueue`, `Interceptor`, the direct-API adapter, and the supporting types) instead of leaving consumers to reach into internal submodules — importing it is cheap (no torch/transformers/lightgbm import as a side effect; see the module docstring). `pyproject.toml` now declares real runtime dependencies for `pip install toolwarden-ai`, split from `requirements.txt`'s exact training-environment pins, with `mcp`/`dev`/`train` as optional extras.
 
@@ -53,9 +53,11 @@ datasets/    dataset assembly scripts + (gitignored) data
 models/      model config/loading code only — actual weight files live outside this repo
 ```
 
-Model weight files (DeBERTa checkpoints, local red-teamer GGUF, LightGBM artifacts) are stored separately at
-`D:\CyberSecurity\Projects\Apps and Models\ToolWarden\llm\` and are never committed to this repo. Both the
-current (Qwen3.5-9B) and superseded (Qwen2.5-14B-Instruct) GGUF files are kept there side by side.
+Model weight files are stored separately at `D:\CyberSecurity\Projects\Apps and Models\ToolWarden\` and are
+never committed to this repo — `classifiers\deberta-v3-base-toolwarden\` (the fine-tuned DeBERTa checkpoint),
+`classifiers\lightgbm\` (the trained LightGBM booster and the fitted ensemble stacker), and `llm\` (the local
+red-teamer GGUF — both the current Qwen3.5-9B and superseded Qwen2.5-14B-Instruct files are kept there side by
+side).
 
 ## Setup
 

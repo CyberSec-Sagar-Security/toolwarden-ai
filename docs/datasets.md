@@ -2,7 +2,7 @@
 
 ## Sources actually used, and why one locked-decision source was dropped
 
-The [build spec](../ToolWarden_AI_Build_Spec.md)'s locked decisions name PINT, InjecAgent, and AgentDojo as benchmarks. Checking each source directly (repo contents, not memory) before writing any download code turned up a real feasibility problem with one of them:
+The build spec's locked decisions (Sagar's original planning document, kept outside this repo — not part of the code/docs storage split) name PINT, InjecAgent, and AgentDojo as benchmarks. Checking each source directly (repo contents, not memory) before writing any download code turned up a real feasibility problem with one of them:
 
 ### PINT — dropped as a trainable/evaluable data source
 
