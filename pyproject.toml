@@ -4,9 +4,40 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "toolwarden-ai"
-version = "0.0.1"
+version = "0.1.0"
 description = "Interception firewall between an AI agent and the tools it calls"
 requires-python = ">=3.11"
+# Runtime deps for USING the library (Classifier + enforcement + the direct-API
+# adapter) -- deliberately narrower than requirements.txt, which pins this
+# repo's own exact training/benchmarking environment (agentdojo, shap,
+# matplotlib, datasets, accelerate, a CUDA-specific torch build) that a
+# downstream consumer guarding their own agent has no reason to install.
+dependencies = [
+    "openai==1.109.1",
+    # requirements.txt pins an exact CUDA build (torch==2.13.0+cu132) for this
+    # repo's own training reproducibility; a library consumer's hardware/CUDA
+    # setup is outside this project's control, so only a floor is set here.
+    "torch>=2.13",
+    # Exact pin kept here too, not just in requirements.txt: transformers 5.15.0
+    # has a confirmed NaN-gradient regression fine-tuning DeBERTa-v2/v3 (see
+    # requirements.txt's comment) -- loading the fine-tuned checkpoint at
+    # inference time is untested against 5.x and not worth risking.
+    "transformers==4.46.3",
+    "sentencepiece==0.2.2",
+    "protobuf==7.35.1",
+    "lightgbm==4.7.0",
+    "scikit-learn==1.9.0",
+]
+
+[project.optional-dependencies]
+# The MCP adapter (toolwarden.mcp_proxy) -- not re-exported from the top-level
+# package precisely so this stays optional (see src/toolwarden/__init__.py).
+mcp = ["mcp[cli]==2.0.0"]
+# This repo's own dev tooling, not needed to use the library.
+dev = ["pytest==8.3.4", "ruff==0.8.4"]
+# Training/benchmarking/red-teaming this repo's own classifier from scratch --
+# not needed to use an already-trained model via the public API.
+train = ["agentdojo==0.1.35", "accelerate==1.14.0", "datasets==5.0.1", "shap==0.52.0", "matplotlib==3.11.1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
