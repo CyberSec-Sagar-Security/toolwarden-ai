@@ -6,9 +6,17 @@ A firewall that sits between an AI agent and the tools it calls. It detects beha
 
 ## Status
 
-Phase 7 (local adversarial red-teamer) complete, scaled to 300 examples. Qwen2.5-14B-Instruct (Q4_K_M, llama.cpp, GPU-offloaded) running locally, driven by cross-product prompt scaffolding over an attack-intent/cover-context/phrasing-strategy taxonomy (full coverage, not random sampling) — see [docs/redteam_generation_report.md](docs/redteam_generation_report.md). Three review rounds, real problems found and disclosed at each: v1→v2 fixed a mislabeling bug (vague non-attacks labeled as injections) and improved phrasing clustering; the v3 scale-up to N=300 surfaced a new finding invisible at N=25 — pretext homogeneity (~17% share a "recent system update" hook regardless of category) that isn't caught by the trigram-overlap or phrase-clustering metrics. Combined with the still-unsolved obfuscation-realism gap, the report explicitly flags Phase 8's degradation numbers as a likely **lower bound** on real degradation, not an accurate estimate. Generated data is permanently flagged `is_synthetic: true` and is not merged into the trainable dataset.
+**Phase 8 (degradation curve benchmark) complete — this is the headline artifact.** See [docs/degradation_curve_report.md](docs/degradation_curve_report.md) and its chart. Recall reported separately per source (never blended), every point estimate with a 95% CI:
 
-Enforcement engine (Phase 6) and explainability (Phase 5) results stand — see [docs/](docs/). Detection: F1 1.000 in-distribution, ~0.42 on the held-out novel-attack split.
+| Source | N | Ensemble recall (95% CI) |
+|---|---|---|
+| In-distribution test (InjecAgent) | 680 | 1.000 [0.989, 1.000] |
+| Held-out novel (AgentDojo) | 132 | 0.914 [0.776, 0.970] |
+| Synthetic adversarial (Qwen-generated, N=300) | 300 | 0.997 [0.981, 0.999] |
+
+The synthetic set's high recall is itself a finding, not a good result: it's *higher* than AgentDojo's, empirically confirming the report's lower-bound caveat — the real, structurally-disjoint benchmark is harder for this classifier than 300 purpose-built adversarial examples. The classifier's dominant real-world failure mode is actually **precision**, not recall (AgentDojo precision: 0.27-0.30) — over-flagging benign content, which an attack-only synthetic set structurally cannot reveal. Full breakdown (per-model, pretext-subset vs. non-pretext, bootstrap/Wilson CIs) in the report. PINT is cited only (ProtectAI's published 79.14% score) — never framed as an evaluation this project ran, since PINT's real dataset isn't public (see docs/datasets.md).
+
+Phases 1-7 stand — see [docs/](docs/) for threat model, architecture, dataset assembly, classifier training, explainability, enforcement engine, and the red-teamer.
 
 ## Scope
 

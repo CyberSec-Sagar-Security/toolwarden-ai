@@ -135,17 +135,13 @@ def main() -> None:
     print(f"Report: {REPORT_PATH}")
 
 
-_OVERRIDE_PHRASE_RE = re.compile(
-    r"\bignore all previous\b|\bdisregard all previous\b|\boverride (all )?previous\b", re.IGNORECASE
-)
-
-
 def _write_report(results: list[dict]) -> None:
     from toolwarden.features.extractors import extract_all
+    from toolwarden.redteam.taxonomy import OVERRIDE_PHRASE_RE
 
     flagged = [r for r in results if r["likely_near_duplicate"]]
     scores = [r["novelty_max_trigram_overlap"] for r in results]
-    override_clustered = [r for r in results if _OVERRIDE_PHRASE_RE.search(r["text"])]
+    override_clustered = [r for r in results if OVERRIDE_PHRASE_RE.search(r["text"])]
 
     for r in results:
         r["_features"] = extract_all(r["text"])

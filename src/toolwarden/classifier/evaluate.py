@@ -73,28 +73,46 @@ def _fmt_metrics_row(name: str, m: dict[str, float]) -> str:
     return f"| {name} | {m['n']} | {m['f1']:.3f} | {m['precision']:.3f} | {m['recall']:.3f} |"
 
 
-def evaluate() -> str:
+def load_fitted_models():
+    """Loads the Phase 4 DeBERTa checkpoint + LightGBM booster, and fits an
+    EnsembleStacker on the same val slice evaluate.py and degradation.py
+    both use (carved from train only — see data.py). Shared here so Phase 8
+    doesn't duplicate the fit logic or risk it drifting out of sync.
+
+    Returns (tokenizer, model, booster, stacker).
+    """
     import lightgbm as lgb
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     records = load_records(PROCESSED_PATH)
     _, val_records = train_fit_val_split(records)
-    test_records = [r for r in records if r["split"] == "test"]
-    held_out_records = [r for r in records if r["split"] == "held_out_novel"]
 
     deberta_dir = config.DEBERTA_CHECKPOINT_DIR / "final"
     tokenizer = AutoTokenizer.from_pretrained(str(deberta_dir))
     model = AutoModelForSequenceClassification.from_pretrained(str(deberta_dir))
-
     booster = lgb.Booster(model_file=str(config.LIGHTGBM_MODEL_PATH))
 
-    splits = {"val": val_records, "test": test_records, "held_out_novel": held_out_records}
+    val_deberta_probs = _deberta_probs(val_records, model, tokenizer)
+    val_lightgbm_probs = _lightgbm_probs(val_records, booster)
+    val_labels = [LABEL2ID[r["label"]] for r in val_records]
+
+    stacker = EnsembleStacker()
+    stacker.fit(val_deberta_probs, val_lightgbm_probs, val_labels)
+
+    return tokenizer, model, booster, stacker
+
+
+def evaluate() -> str:
+    tokenizer, model, booster, stacker = load_fitted_models()
+
+    records = load_records(PROCESSED_PATH)
+    test_records = [r for r in records if r["split"] == "test"]
+    held_out_records = [r for r in records if r["split"] == "held_out_novel"]
+
+    splits = {"test": test_records, "held_out_novel": held_out_records}
     deberta_probs = {name: _deberta_probs(recs, model, tokenizer) for name, recs in splits.items()}
     lightgbm_probs = {name: _lightgbm_probs(recs, booster) for name, recs in splits.items()}
     labels = {name: [LABEL2ID[r["label"]] for r in recs] for name, recs in splits.items()}
-
-    stacker = EnsembleStacker()
-    stacker.fit(deberta_probs["val"], lightgbm_probs["val"], labels["val"])
 
     ensemble_probs = {
         name: stacker.predict_proba(deberta_probs[name], lightgbm_probs[name])

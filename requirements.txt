@@ -26,3 +26,4 @@ protobuf==7.35.1
 # satisfies `import datasets` but has no .Dataset attribute and crashes.
 datasets==5.0.1
 shap==0.52.0
+matplotlib==3.11.1
