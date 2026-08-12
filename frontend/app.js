@@ -28,6 +28,58 @@ function cell(tag, text, className) {
   return el;
 }
 
+// Phase 13 explainability-wiring fix: render Phase 5's SHAP/attention output
+// (Explanation, models.py -- deberta_top_tokens always present, lightgbm_top_features
+// null in detector_mode="deberta_only") wherever a score is already shown, not
+// just the bare number. Every token/feature name here can be attacker-influenced
+// text (a token IS a fragment of the payload) -- textContent only, same rule as
+// the rest of this file.
+function explanationSummary(explanation) {
+  if (!explanation) return "n/a";
+  const topDeberta = explanation.deberta_top_tokens.slice(0, 3).map(([tok, w]) => `${tok} (${w.toFixed(2)})`).join(", ");
+  if (!explanation.lightgbm_top_features) return `deberta: ${topDeberta}`;
+  const topLightgbm = explanation.lightgbm_top_features.slice(0, 3).map(([f, v]) => `${f} (${v.toFixed(2)})`).join(", ");
+  return `deberta: ${topDeberta} | lightgbm: ${topLightgbm}`;
+}
+
+function renderExplanation(container, explanation) {
+  container.innerHTML = "";
+  if (!explanation) {
+    container.appendChild(cell("p", "No explanation available.", "hint"));
+    return;
+  }
+  const debertaHeading = document.createElement("p");
+  debertaHeading.className = "hint";
+  debertaHeading.textContent = "DeBERTa top attended tokens:";
+  container.appendChild(debertaHeading);
+  const debertaList = document.createElement("ul");
+  for (const [tok, weight] of explanation.deberta_top_tokens) {
+    const li = document.createElement("li");
+    li.textContent = `${tok} — ${weight.toFixed(3)}`;
+    debertaList.appendChild(li);
+  }
+  container.appendChild(debertaList);
+
+  if (explanation.lightgbm_top_features) {
+    const lightgbmHeading = document.createElement("p");
+    lightgbmHeading.className = "hint";
+    lightgbmHeading.textContent = "LightGBM top SHAP features:";
+    container.appendChild(lightgbmHeading);
+    const lightgbmList = document.createElement("ul");
+    for (const [feat, val] of explanation.lightgbm_top_features) {
+      const li = document.createElement("li");
+      li.textContent = `${feat} — ${val.toFixed(3)}`;
+      lightgbmList.appendChild(li);
+    }
+    container.appendChild(lightgbmList);
+  } else {
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = "LightGBM: n/a (detector_mode=\"deberta_only\")";
+    container.appendChild(note);
+  }
+}
+
 async function fetchJSON(path, options) {
   const res = await fetch(`${API}${path}`, options);
   const body = await res.json().catch(() => ({}));
@@ -43,6 +95,7 @@ let currentResolveId = null;
 function openResolveDialog(pending) {
   currentResolveId = pending.id;
   $("#resolve-summary").textContent = `${pending.direction} — score ${pending.score != null ? pending.score.toFixed(3) : "n/a"} — ${pending.reason}`;
+  renderExplanation($("#resolve-explanation"), pending.explanation);
   $("#resolve-decided-by").value = "";
   $("#resolve-notes").value = "";
   $("#resolve-error").textContent = "";
@@ -98,6 +151,7 @@ async function refreshApprovals() {
     row.appendChild(cell("td", p.score != null ? p.score.toFixed(3) : "n/a"));
     row.appendChild(cell("td", p.reason));
     row.appendChild(cell("td", JSON.stringify(p.payload), "payload"));
+    row.appendChild(cell("td", explanationSummary(p.explanation), "detail"));
 
     const actionCell = document.createElement("td");
     const btn = document.createElement("button");

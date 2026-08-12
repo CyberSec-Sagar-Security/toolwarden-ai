@@ -19,10 +19,11 @@ docker compose up -d --build
 The most significant design change from every earlier adapter (`guarded_loop.py`'s OpenAI loop, `mcp_proxy/server.py`'s MCP server): **a HOLD can't block an HTTP request waiting for a human.** Phase 9 and 10's demos use a synchronous `on_hold()` callback because they're single Python processes where a human (or a scripted stand-in) can answer inline. There's no human on the other end of a REST call. So here, a HOLD returns immediately:
 
 ```json
-{"decision": "hold", "reason": "score 0.513 >= hold_threshold 0.5", "score": 0.513, "pending_id": "eb42d9cb-..."}
+{"decision": "hold", "reason": "score 0.513 >= hold_threshold 0.5", "score": 0.513, "pending_id": "eb42d9cb-...",
+ "explanation": {"deberta_top_tokens": [["▁Alice", 0.072], ["▁to", 0.064]], "lightgbm_top_features": [["text_length", -4.772]]}}
 ```
 
-...and the pending item sits in Postgres until a reviewer resolves it via the dashboard (or `POST /v1/approvals/{id}/resolve` directly). This is the honest shape of a real async approval workflow — not a simplification of the demo's callback, a different and more realistic pattern the demo's design couldn't show.
+...and the pending item sits in Postgres until a reviewer resolves it via the dashboard (or `POST /v1/approvals/{id}/resolve` directly). This is the honest shape of a real async approval workflow — not a simplification of the demo's callback, a different and more realistic pattern the demo's design couldn't show. `explanation` (Phase 13: Phase 5's SHAP/attention output, wired into the live decision path for the first time — see `docs/known_limitations.md`) is populated on every `/v1/tool-calls/*` and `/v1/approvals/{id}/resolve` response, and on every item `/v1/approvals/pending` returns.
 
 ## API
 

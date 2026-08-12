@@ -12,7 +12,12 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
     payload JSONB NOT NULL,
     reason TEXT NOT NULL,
     score DOUBLE PRECISION,
-    created_at_ms BIGINT NOT NULL
+    created_at_ms BIGINT NOT NULL,
+    -- Phase 5's SHAP/attention output (Explanation.to_dict(), models.py),
+    -- attached at flag-time so a reviewer sees why, not just the score --
+    -- see docs/known_limitations.md's "Explainability was built... but
+    -- never wired in" entry (Phase 13 audit) this closes.
+    explanation JSONB
 );
 
 -- A resolved approval is deleted from pending_approvals and inserted here --
@@ -25,7 +30,8 @@ CREATE TABLE IF NOT EXISTS approval_resolutions (
     decision TEXT NOT NULL CHECK (decision IN ('approved', 'denied')),
     decided_by TEXT NOT NULL,
     decided_at_ms BIGINT NOT NULL,
-    notes TEXT NOT NULL DEFAULT ''
+    notes TEXT NOT NULL DEFAULT '',
+    explanation JSONB
 );
 
 -- One row per intercepted request or result -- the durable equivalent of
@@ -42,3 +48,11 @@ CREATE TABLE IF NOT EXISTS traffic_events (
 );
 
 CREATE INDEX IF NOT EXISTS traffic_events_created_at_idx ON traffic_events (created_at_ms DESC);
+
+-- Explanation columns added in the Phase 13 explainability-wiring fix, after
+-- pending_approvals/approval_resolutions already existed on some deployments
+-- (this dev machine's own Docker volume included) -- CREATE TABLE IF NOT
+-- EXISTS above is a no-op against an already-existing table, so the column
+-- needs its own idempotent migration statement to actually reach it.
+ALTER TABLE pending_approvals ADD COLUMN IF NOT EXISTS explanation JSONB;
+ALTER TABLE approval_resolutions ADD COLUMN IF NOT EXISTS explanation JSONB;

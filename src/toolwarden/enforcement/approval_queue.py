@@ -17,6 +17,7 @@ from typing import Any
 
 from toolwarden.enforcement.policy import Decision, Direction
 from toolwarden.logging_sink import LogSink
+from toolwarden.models import Explanation
 
 
 class ApprovalDecision(str, Enum):
@@ -36,6 +37,7 @@ class PendingApproval:
     score: float | None
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at_ms: int = field(default_factory=_now_ms)
+    explanation: Explanation | None = None
 
 
 @dataclass
@@ -46,6 +48,7 @@ class ApprovalRecord:
     decided_by: str
     decided_at_ms: int = field(default_factory=_now_ms)
     notes: str = ""
+    explanation: Explanation | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -91,8 +94,15 @@ class ApprovalQueue:
         self._pending: dict[str, PendingApproval] = {}
         self._resolved: dict[str, ApprovalRecord] = {}
 
-    def submit(self, direction: Direction, payload: dict[str, Any], reason: str, score: float | None) -> PendingApproval:
-        pending = PendingApproval(direction=direction, payload=payload, reason=reason, score=score)
+    def submit(
+        self,
+        direction: Direction,
+        payload: dict[str, Any],
+        reason: str,
+        score: float | None,
+        explanation: Explanation | None = None,
+    ) -> PendingApproval:
+        pending = PendingApproval(direction=direction, payload=payload, reason=reason, score=score, explanation=explanation)
         self._pending[pending.id] = pending
         return pending
 
@@ -109,7 +119,12 @@ class ApprovalQueue:
 
         pending = self._pending[pending_id]
         record = ApprovalRecord(
-            pending_id=pending_id, direction=pending.direction, decision=decision, decided_by=decided_by, notes=notes
+            pending_id=pending_id,
+            direction=pending.direction,
+            decision=decision,
+            decided_by=decided_by,
+            notes=notes,
+            explanation=pending.explanation,
         )
         self.sink.write(record.to_dict())
         self._resolved[pending_id] = record

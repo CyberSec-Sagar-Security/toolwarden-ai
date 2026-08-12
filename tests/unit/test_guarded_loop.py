@@ -6,6 +6,7 @@ from toolwarden.enforcement.approval_queue import ApprovalDecision
 from toolwarden.enforcement.policy import Decision, Direction, PolicyEngine
 from toolwarden.interceptor import Interceptor
 from toolwarden.logging_sink import InMemorySink
+from toolwarden.models import Explanation
 
 
 class FakeToolCall:
@@ -49,13 +50,22 @@ class FakeClient:
 
 
 class FakeClassifier:
-    """Returns a scripted score per call, in order — avoids loading real models in a unit test."""
+    """Returns a scripted score per call, in order — avoids loading real models in a unit test.
+    score_and_explain() draws from the same scripted sequence and pairs each score with a fake
+    Explanation tagged with that score, so tests can assert the right explanation landed on the
+    right event without needing a real DeBERTa/LightGBM call.
+    """
 
     def __init__(self, scores: list[float]):
         self._scores = iter(scores)
 
     def score(self, text: str) -> float:
         return next(self._scores)
+
+    def score_and_explain(self, text: str) -> tuple[float, Explanation]:
+        score = next(self._scores)
+        explanation = Explanation(deberta_top_tokens=[(f"fake-token-for-{score}", score)], lightgbm_top_features=None)
+        return score, explanation
 
 
 def _tool_call_then_final(tool_name: str, arguments: dict, final_text: str = "Done.") -> list[FakeResponse]:
@@ -159,6 +169,21 @@ def test_high_request_score_blocks_before_tool_executes():
 
     assert executed == []  # tool never actually ran
     assert len(result.events) == 1  # only the request-side decision, no result-side classification
+
+
+def test_explanation_is_attached_to_events_not_just_the_score():
+    client = FakeClient(_tool_call_then_final("lookup", {"q": "weather"}))
+    classifier = FakeClassifier([0.1, 0.95])  # request allow, result auto-quarantine
+    tool_functions = {"lookup": lambda q: "malicious content"}
+
+    def on_hold(*args):
+        raise AssertionError("should not hold on these scores")
+
+    loop = _make_loop(client, classifier, tool_functions, on_hold)
+    result = loop.run("do a lookup")
+
+    assert result.events[0].explanation == Explanation(deberta_top_tokens=[("fake-token-for-0.1", 0.1)], lightgbm_top_features=None)
+    assert result.events[1].explanation == Explanation(deberta_top_tokens=[("fake-token-for-0.95", 0.95)], lightgbm_top_features=None)
 
 
 def test_approval_resolution_is_attributed_and_logged():

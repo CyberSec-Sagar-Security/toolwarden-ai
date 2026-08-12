@@ -27,20 +27,36 @@ dependencies = [
     "protobuf==7.35.1",
     "lightgbm==4.7.0",
     "scikit-learn==1.9.0",
+    # Classifier.score_and_explain() (Phase 13's explainability-wiring fix)
+    # calls explain_lightgbm() -> shap.TreeExplainer in the live decision
+    # path, not just Phase 5's offline spot-check -- shap moved here from
+    # the train-only extra below. Caught via a real Docker container run
+    # (ModuleNotFoundError: shap), not assumed: the dev venv's
+    # requirements.txt installs shap unconditionally, so this gap was
+    # invisible until something installed via pyproject.toml's own
+    # dependency list actually exercised the code path.
+    "shap==0.52.0",
 ]
 
 [project.optional-dependencies]
 # The MCP adapter (toolwarden.mcp_proxy) -- not re-exported from the top-level
 # package precisely so this stays optional (see src/toolwarden/__init__.py).
 mcp = ["mcp[cli]==2.0.0"]
+# The Anthropic adapter (toolwarden.demo.guarded_loop_anthropic) -- optional
+# for the same reason mcp is: not every consumer needs every adapter.
+# openai stays a hard dependency (an existing, unchanged pin from Phase 2/11);
+# not retroactively changed here to keep this addition minimal.
+anthropic = ["anthropic==0.121.0"]
 # Phase 12's FastAPI backend (toolwarden.service) -- only needed to run the
 # deployable HTTP service, not to use toolwarden as a library.
 service = ["fastapi==0.141.1", "uvicorn[standard]==0.52.1", "psycopg[binary]==3.3.4", "psycopg_pool==3.3.1"]
 # This repo's own dev tooling, not needed to use the library.
 dev = ["pytest==8.3.4", "ruff==0.8.4"]
 # Training/benchmarking/red-teaming this repo's own classifier from scratch --
-# not needed to use an already-trained model via the public API.
-train = ["agentdojo==0.1.35", "accelerate==1.14.0", "datasets==5.0.1", "shap==0.52.0", "matplotlib==3.11.1"]
+# not needed to use an already-trained model via the public API. (shap moved
+# to base dependencies above -- it's needed for inference-time explainability
+# now, not just training-time SHAP analysis.)
+train = ["agentdojo==0.1.35", "accelerate==1.14.0", "datasets==5.0.1", "matplotlib==3.11.1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

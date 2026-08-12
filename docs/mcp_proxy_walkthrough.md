@@ -43,7 +43,7 @@ Same disclosed classifier weakness as Phase 9 (`docs/known_limitations.md`), thi
 
 ## Verified run — a new data point on Phase 9's documented non-determinism, not a new finding
 
-Phase 9's own walkthrough already disclosed that the approved-HOLD branch's exact intermediate hold count is not fully deterministic ("depends on GPT-4o-mini's exact wording"). This phase's run reproduces that same pattern with a different concrete shape: in Phase 9's sample run, `send_email`'s **request** scored low (0.024, auto-allow) and only its **result** landed in the high band (0.978, auto-quarantine after the email had already sent). In this phase's verified run, both `send_email`'s **request** (0.517) and **result** (0.522) landed in the HOLD band and required separate approvals:
+Phase 9's own walkthrough already disclosed that the approved-HOLD branch's exact intermediate hold count is not fully deterministic ("depends on GPT-4o-mini's exact wording"). This phase's run reproduces that same pattern with a different concrete shape: in Phase 9's sample run, `send_email`'s **request** scored low (0.024, auto-allow) and only its **result** landed in the high band (0.978, auto-quarantine after the email had already sent). In this phase's verified run, both `send_email`'s **request** (0.517) and **result** (0.522) landed in the HOLD band and required separate approvals (captured before Phase 13's explainability-wiring fix — every non-ALLOW line below now also prints the top DeBERTa tokens/LightGBM features behind the score, re-verified live through this exact MCP path — see `docs/known_limitations.md`):
 
 ```
 SCENARIO 1: ALLOW — genuinely benign page (via MCP)

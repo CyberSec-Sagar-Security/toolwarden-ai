@@ -119,6 +119,17 @@ button.resolve-btn {
 }
 
 .dialog-box h2 { margin-top: 0; font-size: 1.1rem; }
+.explanation {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin-top: 0.6rem;
+  max-height: 10rem;
+  overflow-y: auto;
+}
+.explanation ul { margin: 0.2rem 0 0.6rem; padding-left: 1.2rem; font-size: 0.8rem; font-family: ui-monospace, monospace; }
+.explanation p.hint { margin: 0.4rem 0 0; }
 .dialog-box label { display: block; margin-top: 0.8rem; font-size: 0.85rem; color: var(--muted); }
 .dialog-box input, .dialog-box select {
   width: 100%;

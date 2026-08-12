@@ -41,7 +41,7 @@ from toolwarden.enforcement.engine import EnforcementEngine
 from toolwarden.enforcement.policy import Decision, Direction, PolicyEngine
 from toolwarden.interceptor import Interceptor
 from toolwarden.logging_sink import LogSink
-from toolwarden.models import ToolCallRequest, ToolCallResult
+from toolwarden.models import Explanation, ToolCallRequest, ToolCallResult
 
 
 def _to_mcp_tool(schema_entry: dict[str, Any]) -> types.Tool:
@@ -94,9 +94,9 @@ class GuardedMCPServer:
             )
         )
 
-        request_score = self.classifier.score(json.dumps(arguments))
+        request_score, request_explanation = self.classifier.score_and_explain(json.dumps(arguments))
         request_decision = self._enforce(
-            Direction.REQUEST, request.to_dict(), request_score, f"request: {request.tool_name}"
+            Direction.REQUEST, request.to_dict(), request_score, request_explanation, f"request: {request.tool_name}"
         )
 
         if request_decision is Decision.BLOCK:
@@ -114,9 +114,9 @@ class GuardedMCPServer:
             ToolCallResult(call_id=call_id, tool_name=request.tool_name, content=content, is_error=is_error)
         )
 
-        result_score = self.classifier.score(str(result.content))
+        result_score, result_explanation = self.classifier.score_and_explain(str(result.content))
         result_decision = self._enforce(
-            Direction.RESULT, result.to_dict(), result_score, f"result: {request.tool_name}"
+            Direction.RESULT, result.to_dict(), result_score, result_explanation, f"result: {request.tool_name}"
         )
 
         if result_decision is Decision.QUARANTINE:
@@ -134,10 +134,14 @@ class GuardedMCPServer:
         except Exception as exc:  # tool failure surfaces as a result, not a crash
             return str(exc), True
 
-    def _enforce(self, direction: Direction, payload: dict[str, Any], score: float, label: str) -> Decision:
-        outcome = self.engine.evaluate(direction, payload, score)
+    def _enforce(
+        self, direction: Direction, payload: dict[str, Any], score: float, explanation: Explanation | None, label: str
+    ) -> Decision:
+        outcome = self.engine.evaluate(direction, payload, score, explanation=explanation)
         self.events.append(
-            ToolCallEvent(label=label, direction=direction.value, score=score, decision=outcome.decision.value)
+            ToolCallEvent(
+                label=label, direction=direction.value, score=score, decision=outcome.decision.value, explanation=explanation
+            )
         )
 
         if outcome.decision is not Decision.HOLD:
@@ -153,6 +157,7 @@ class GuardedMCPServer:
                 decision=outcome.decision.value,
                 resolution=approval_decision.value,
                 final_decision=final.decision.value,
+                explanation=explanation,
             )
         )
         return final.decision

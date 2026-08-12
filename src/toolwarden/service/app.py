@@ -48,7 +48,7 @@ from toolwarden.enforcement.approval_queue import (  # noqa: E402
 from toolwarden.enforcement.engine import EnforcementEngine  # noqa: E402
 from toolwarden.enforcement.policy import DEFAULT_BLOCK_THRESHOLD, DEFAULT_HOLD_THRESHOLD, Direction, PolicyEngine  # noqa: E402
 from toolwarden.interceptor import Interceptor  # noqa: E402
-from toolwarden.models import ToolCallRequest, ToolCallResult  # noqa: E402
+from toolwarden.models import Explanation, ToolCallRequest, ToolCallResult  # noqa: E402
 from toolwarden.service import db  # noqa: E402
 from toolwarden.service.postgres_approval_queue import PostgresApprovalQueue  # noqa: E402
 from toolwarden.service.postgres_log_sink import PostgresLogSink  # noqa: E402
@@ -120,11 +120,21 @@ class ResolveIn(BaseModel):
     notes: str = ""
 
 
+class ExplanationOut(BaseModel):
+    deberta_top_tokens: list[tuple[str, float]]
+    lightgbm_top_features: list[tuple[str, float]] | None
+
+
+def _explanation_out(explanation: Explanation | None) -> ExplanationOut | None:
+    return None if explanation is None else ExplanationOut(**explanation.to_dict())
+
+
 class EnforcementOut(BaseModel):
     decision: str
     reason: str
     score: float | None
     pending_id: str | None
+    explanation: ExplanationOut | None = None
 
 
 @app.get("/healthz")
@@ -146,9 +156,15 @@ def submit_tool_call_request(
             call_id=body.call_id or uuid.uuid4().hex,
         )
     )
-    score = classifier.score(json.dumps(body.arguments))
-    outcome = engine.evaluate(Direction.REQUEST, tc_request.to_dict(), score)
-    return EnforcementOut(decision=outcome.decision.value, reason=outcome.reason, score=score, pending_id=outcome.pending_id)
+    score, explanation = classifier.score_and_explain(json.dumps(body.arguments))
+    outcome = engine.evaluate(Direction.REQUEST, tc_request.to_dict(), score, explanation=explanation)
+    return EnforcementOut(
+        decision=outcome.decision.value,
+        reason=outcome.reason,
+        score=score,
+        pending_id=outcome.pending_id,
+        explanation=_explanation_out(outcome.explanation),
+    )
 
 
 @app.post("/v1/tool-calls/result", response_model=EnforcementOut)
@@ -159,9 +175,15 @@ def submit_tool_call_result(
     tc_result = interceptor.intercept_result(
         ToolCallResult(call_id=body.call_id, tool_name=body.tool_name, content=body.content, is_error=body.is_error)
     )
-    score = classifier.score(str(tc_result.content))
-    outcome = engine.evaluate(Direction.RESULT, tc_result.to_dict(), score)
-    return EnforcementOut(decision=outcome.decision.value, reason=outcome.reason, score=score, pending_id=outcome.pending_id)
+    score, explanation = classifier.score_and_explain(str(tc_result.content))
+    outcome = engine.evaluate(Direction.RESULT, tc_result.to_dict(), score, explanation=explanation)
+    return EnforcementOut(
+        decision=outcome.decision.value,
+        reason=outcome.reason,
+        score=score,
+        pending_id=outcome.pending_id,
+        explanation=_explanation_out(outcome.explanation),
+    )
 
 
 @app.get("/v1/approvals/pending")
@@ -175,6 +197,7 @@ def list_pending_approvals(conn=Depends(get_conn)):
             "reason": p.reason,
             "score": p.score,
             "created_at_ms": p.created_at_ms,
+            "explanation": p.explanation.to_dict() if p.explanation is not None else None,
         }
         for p in queue.list_pending()
     ]
@@ -192,7 +215,13 @@ def resolve_approval(pending_id: str, body: ResolveIn, engine: EnforcementEngine
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return EnforcementOut(decision=final.decision.value, reason=final.reason, score=None, pending_id=pending_id)
+    return EnforcementOut(
+        decision=final.decision.value,
+        reason=final.reason,
+        score=None,
+        pending_id=pending_id,
+        explanation=_explanation_out(final.explanation),
+    )
 
 
 @app.get("/v1/traffic")

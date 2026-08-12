@@ -20,6 +20,7 @@ from toolwarden.enforcement.policy import Decision, Direction, PolicyEngine
 from toolwarden.interceptor import Interceptor
 from toolwarden.logging_sink import InMemorySink
 from toolwarden.mcp_proxy.server import GuardedMCPServer
+from toolwarden.models import Explanation
 
 TOOLS_SCHEMA = [
     {
@@ -46,13 +47,21 @@ TOOLS_SCHEMA = [
 
 
 class FakeClassifier:
-    """Returns a scripted score per call, in order — avoids loading real models in a unit test."""
+    """Returns a scripted score per call, in order — avoids loading real models in a unit test.
+    score_and_explain() draws from the same sequence and pairs each score with a fake Explanation
+    tagged with that score.
+    """
 
     def __init__(self, scores: list[float]):
         self._scores = iter(scores)
 
     def score(self, text: str) -> float:
         return next(self._scores)
+
+    def score_and_explain(self, text: str) -> tuple[float, Explanation]:
+        score = next(self._scores)
+        explanation = Explanation(deberta_top_tokens=[(f"fake-token-for-{score}", score)], lightgbm_top_features=None)
+        return score, explanation
 
 
 def _refuse_hold(*args):
@@ -161,6 +170,20 @@ def test_mid_result_score_holds_then_approved_passes_real_content_through():
 
         assert result.content[0].text == "borderline content"
         assert guarded.events[-1].final_decision == Decision.ALLOW.value
+
+    anyio.run(scenario)
+
+
+def test_explanation_is_attached_to_events():
+    async def scenario():
+        classifier = FakeClassifier([0.1, 0.95])
+        guarded = _make_server({"fetch": lambda url: "malicious content"}, classifier, _refuse_hold)
+
+        async with Client(guarded.server) as client:
+            await client.call_tool("fetch", {"url": "https://x"})
+
+        assert guarded.events[0].explanation == Explanation(deberta_top_tokens=[("fake-token-for-0.1", 0.1)], lightgbm_top_features=None)
+        assert guarded.events[1].explanation == Explanation(deberta_top_tokens=[("fake-token-for-0.95", 0.95)], lightgbm_top_features=None)
 
     anyio.run(scenario)
 

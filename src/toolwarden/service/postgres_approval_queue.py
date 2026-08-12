@@ -29,6 +29,15 @@ from toolwarden.enforcement.approval_queue import (
     resolution_to_decision,
 )
 from toolwarden.enforcement.policy import Decision, Direction
+from toolwarden.models import Explanation
+
+
+def _explanation_json(explanation: Explanation | None) -> Jsonb | None:
+    return None if explanation is None else Jsonb(explanation.to_dict())
+
+
+def _explanation_from_row(value: dict | None) -> Explanation | None:
+    return None if value is None else Explanation.from_dict(value)
 
 
 def _now_ms() -> int:
@@ -39,18 +48,34 @@ class PostgresApprovalQueue:
     def __init__(self, conn: psycopg.Connection) -> None:
         self.conn = conn
 
-    def submit(self, direction: Direction, payload: dict[str, Any], reason: str, score: float | None) -> PendingApproval:
-        pending = PendingApproval(direction=direction, payload=payload, reason=reason, score=score)
+    def submit(
+        self,
+        direction: Direction,
+        payload: dict[str, Any],
+        reason: str,
+        score: float | None,
+        explanation: Explanation | None = None,
+    ) -> PendingApproval:
+        pending = PendingApproval(direction=direction, payload=payload, reason=reason, score=score, explanation=explanation)
         self.conn.execute(
-            "INSERT INTO pending_approvals (id, direction, payload, reason, score, created_at_ms) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (pending.id, pending.direction.value, Jsonb(pending.payload), pending.reason, pending.score, pending.created_at_ms),
+            "INSERT INTO pending_approvals (id, direction, payload, reason, score, created_at_ms, explanation) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (
+                pending.id,
+                pending.direction.value,
+                Jsonb(pending.payload),
+                pending.reason,
+                pending.score,
+                pending.created_at_ms,
+                _explanation_json(pending.explanation),
+            ),
         )
         return pending
 
     def list_pending(self) -> list[PendingApproval]:
         rows = self.conn.execute(
-            "SELECT id, direction, payload, reason, score, created_at_ms FROM pending_approvals ORDER BY created_at_ms"
+            "SELECT id, direction, payload, reason, score, created_at_ms, explanation "
+            "FROM pending_approvals ORDER BY created_at_ms"
         ).fetchall()
         return [
             PendingApproval(
@@ -60,6 +85,7 @@ class PostgresApprovalQueue:
                 reason=row[3],
                 score=row[4],
                 created_at_ms=row[5],
+                explanation=_explanation_from_row(row[6]),
             )
             for row in rows
         ]
@@ -79,7 +105,7 @@ class PostgresApprovalQueue:
             raise UnknownApprovalError(f"no pending approval with id {pending_id}") from exc
 
         row = self.conn.execute(
-            "SELECT direction FROM pending_approvals WHERE id = %s", (pending_id,)
+            "SELECT direction, explanation FROM pending_approvals WHERE id = %s", (pending_id,)
         ).fetchone()
         if row is None:
             already = self.conn.execute(
@@ -90,13 +116,26 @@ class PostgresApprovalQueue:
             raise UnknownApprovalError(f"no pending approval with id {pending_id}")
 
         record = ApprovalRecord(
-            pending_id=pending_id, direction=Direction(row[0]), decision=decision, decided_by=decided_by, notes=notes
+            pending_id=pending_id,
+            direction=Direction(row[0]),
+            decision=decision,
+            decided_by=decided_by,
+            notes=notes,
+            explanation=_explanation_from_row(row[1]),
         )
         with self.conn.transaction():
             self.conn.execute(
-                "INSERT INTO approval_resolutions (pending_id, direction, decision, decided_by, decided_at_ms, notes) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
-                (record.pending_id, record.direction.value, record.decision.value, record.decided_by, record.decided_at_ms, record.notes),
+                "INSERT INTO approval_resolutions (pending_id, direction, decision, decided_by, decided_at_ms, notes, explanation) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (
+                    record.pending_id,
+                    record.direction.value,
+                    record.decision.value,
+                    record.decided_by,
+                    record.decided_at_ms,
+                    record.notes,
+                    _explanation_json(record.explanation),
+                ),
             )
             self.conn.execute("DELETE FROM pending_approvals WHERE id = %s", (pending_id,))
         return record

@@ -1,67 +1,72 @@
-"""Phase 9: chains Phase 2 (interception), Phase 4 (classifier), and
-Phase 6 (policy + approval queue) into one live OpenAI tool-calling loop —
-the integration none of the earlier phases actually built. Every outbound
-tool-call request and inbound tool-call result gets intercepted, scored,
-policy-decided, and enforced before it can affect the agent's next step.
+"""Phase 13 follow-up: the Anthropic side of the "direct API function-calling
+(OpenAI/Anthropic tool_use)" locked scope from Phase 2 -- built, tested, and
+demonstrated end to end for the first time. Every phase up to this one only
+ever exercised OpenAI (confirmed via the Phase 13 audit: zero references to
+`anthropic`/`claude` in any toolwarden source file). Same shape of work as
+Phase 10's MCP proxy: one adapter translating a different tool-calling
+format into the existing intercepted structure, reusing Classifier,
+PolicyEngine, EnforcementEngine, and ApprovalQueue completely unmodified.
 
-Approval resolution is a synchronous callback, not a real async queue —
-this is a demo of the flow, not Phase 12's production approval service.
-The caller supplies on_hold(pending_id, direction, payload, label, score)
--> ApprovalDecision; run_demo.py controls it (scripted approve/deny for
-reliability, or a live input() prompt for an interactive run).
+Claude's Messages API tool-calling differs from OpenAI's chat-completions
+tool-calling in three structural ways this adapter has to bridge, none of
+which touch the enforcement pipeline itself:
+
+1. Tool schema shape: Claude wants {"name", "description", "input_schema"},
+   not OpenAI's {"type": "function", "function": {...}}. _to_anthropic_tool()
+   converts demo/tools.py's existing OpenAI-shaped TOOLS_SCHEMA rather than
+   maintaining the tool contract a third time (mcp_proxy/server.py's
+   _to_mcp_tool() does the same conversion for MCP).
+2. A tool call is a content block (type="tool_use") inside Message.content,
+   not a separate parallel list (OpenAI's message.tool_calls) -- and
+   ToolUseBlock.input is already a parsed dict, not a JSON string to
+   json.loads() the way OpenAI's function.arguments is.
+3. Multiple tool_use blocks in one assistant turn get answered with ONE
+   user message containing multiple tool_result blocks (one per
+   tool_use_id), not one separate "tool"-role message per call the way
+   OpenAI's loop appends.
+
+Reuses guarded_loop.py's own ToolCallEvent/GuardedRunResult/OnHold/
+QUARANTINE_MESSAGE/BLOCK_MESSAGE_TEMPLATE directly (imported, not
+redefined) so all three adapters (OpenAI, MCP, Anthropic) share one
+definition of what "blocked" and "quarantined" mean.
 """
 
 from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from openai import OpenAI
+from anthropic import Anthropic
 
 from toolwarden.demo.classify import Classifier
-from toolwarden.enforcement.approval_queue import ApprovalDecision, ApprovalQueue
+from toolwarden.demo.guarded_loop import (
+    BLOCK_MESSAGE_TEMPLATE,
+    QUARANTINE_MESSAGE,
+    GuardedRunResult,
+    OnHold,
+    ToolCallEvent,
+)
+from toolwarden.enforcement.approval_queue import ApprovalQueue
 from toolwarden.enforcement.engine import EnforcementEngine
 from toolwarden.enforcement.policy import Decision, Direction, PolicyEngine
 from toolwarden.interceptor import Interceptor
 from toolwarden.logging_sink import LogSink
 from toolwarden.models import Explanation, ToolCallRequest, ToolCallResult
 
-OnHold = Callable[[str, Direction, dict, str, float | None], ApprovalDecision]
 
-QUARANTINE_MESSAGE = (
-    "[ToolWarden] Content quarantined: potential prompt injection detected in this tool result "
-    "and removed before it reached the agent."
-)
-BLOCK_MESSAGE_TEMPLATE = "[ToolWarden] Blocked: the {tool_name} call did not execute (policy: {reason})."
-
-
-@dataclass
-class ToolCallEvent:
-    """One decision point in the trace — a request or a result being
-    scored and enforced. run_demo.py prints these for the live narrative.
+def _to_anthropic_tool(schema_entry: dict[str, Any]) -> dict[str, Any]:
+    """Converts one entry of an OpenAI-shaped tools_schema (demo/tools.py)
+    into Claude's tool shape.
     """
-
-    label: str
-    direction: str
-    score: float | None
-    decision: str
-    resolution: str | None = None
-    final_decision: str | None = None
-    explanation: Explanation | None = None
+    fn = schema_entry["function"]
+    return {"name": fn["name"], "description": fn.get("description", ""), "input_schema": fn["parameters"]}
 
 
-@dataclass
-class GuardedRunResult:
-    final_text: str
-    events: list[ToolCallEvent] = field(default_factory=list)
-
-
-class GuardedOpenAIToolLoop:
+class GuardedAnthropicToolLoop:
     def __init__(
         self,
-        client: OpenAI,
+        client: Anthropic,
         model: str,
         tools_schema: list[dict[str, Any]],
         tool_functions: dict[str, Callable[..., Any]],
@@ -71,40 +76,44 @@ class GuardedOpenAIToolLoop:
         approval_sink: LogSink,
         on_hold: OnHold,
         session_id: str | None = None,
+        max_tokens: int = 1024,
     ) -> None:
         self.client = client
         self.model = model
-        self.tools_schema = tools_schema
+        self.tools_schema = [_to_anthropic_tool(entry) for entry in tools_schema]
         self.tool_functions = tool_functions
         self.interceptor = interceptor
         self.classifier = classifier
         self.engine = EnforcementEngine(policy=policy, approval_queue=ApprovalQueue(sink=approval_sink))
         self.on_hold = on_hold
         self.session_id = session_id or str(uuid.uuid4())
+        self.max_tokens = max_tokens
 
     def run(self, user_message: str, max_rounds: int = 5) -> GuardedRunResult:
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
         events: list[ToolCallEvent] = []
 
         for _ in range(max_rounds):
-            response = self.client.chat.completions.create(
-                model=self.model, messages=messages, tools=self.tools_schema
+            response = self.client.messages.create(
+                model=self.model, max_tokens=self.max_tokens, messages=messages, tools=self.tools_schema
             )
-            choice = response.choices[0]
-            messages.append(choice.message.model_dump(exclude_none=True))
+            messages.append({"role": "assistant", "content": response.content})
 
-            if not choice.message.tool_calls:
-                return GuardedRunResult(final_text=choice.message.content or "", events=events)
+            tool_use_blocks = [block for block in response.content if block.type == "tool_use"]
+            if not tool_use_blocks:
+                final_text = "".join(block.text for block in response.content if block.type == "text")
+                return GuardedRunResult(final_text=final_text, events=events)
 
-            for tool_call in choice.message.tool_calls:
-                arguments = json.loads(tool_call.function.arguments or "{}")
+            tool_results: list[dict[str, Any]] = []
+            for block in tool_use_blocks:
+                arguments = block.input
                 request = self.interceptor.intercept_request(
                     ToolCallRequest(
-                        tool_name=tool_call.function.name,
+                        tool_name=block.name,
                         arguments=arguments,
-                        source="openai",
+                        source="anthropic",
                         session_id=self.session_id,
-                        call_id=tool_call.id,
+                        call_id=block.id,
                     )
                 )
 
@@ -121,16 +130,14 @@ class GuardedOpenAIToolLoop:
                 if request_decision is Decision.BLOCK:
                     # No real tool output exists to inspect here — the call
                     # never ran, so this is our own system-generated notice,
-                    # not attacker-influenced content. Log it for the audit
-                    # trail, but don't spend a classifier call re-scoring
-                    # text we just wrote ourselves.
+                    # not attacker-influenced content. Mirrors guarded_loop.py.
                     content = BLOCK_MESSAGE_TEMPLATE.format(tool_name=request.tool_name, reason="blocked pre-execution")
                     self.interceptor.intercept_result(
                         ToolCallResult(call_id=request.call_id, tool_name=request.tool_name, content=content, is_error=True)
                     )
-                    final_content = content
+                    final_content, is_error_out = content, True
                 else:
-                    content, is_error = self._execute(request.tool_name, request.arguments)
+                    content, is_error = self._execute(request.tool_name, arguments)
                     result = self.interceptor.intercept_result(
                         ToolCallResult(call_id=request.call_id, tool_name=request.tool_name, content=content, is_error=is_error)
                     )
@@ -146,14 +153,18 @@ class GuardedOpenAIToolLoop:
                     )
 
                     final_content = QUARANTINE_MESSAGE if result_decision is Decision.QUARANTINE else result.content
+                    is_error_out = is_error
 
-                messages.append(
+                tool_results.append(
                     {
-                        "role": "tool",
-                        "tool_call_id": request.call_id,
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
                         "content": final_content if isinstance(final_content, str) else json.dumps(final_content),
+                        "is_error": is_error_out,
                     }
                 )
+
+            messages.append({"role": "user", "content": tool_results})
 
         return GuardedRunResult(final_text="[max tool-call rounds reached without a final answer]", events=events)
 

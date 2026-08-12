@@ -1,26 +1,20 @@
-"""Phase 9: the standalone demo agent. A research assistant that fetches a
-webpage and summarizes it, wired through ToolWarden's full pipeline
-(Interceptor -> Classifier -> PolicyEngine -> EnforcementEngine ->
-ApprovalQueue). Three scenarios, run back to back, each printed with a
-clear narrative:
+"""Phase 13 follow-up: Phase 9's exact three scenarios, run against Claude
+instead of OpenAI, to actually demonstrate the Anthropic side of the
+"direct API function-calling (OpenAI/Anthropic tool_use)" locked scope end
+to end -- not just that GuardedAnthropicToolLoop imports cleanly. Same
+canned content (src/toolwarden/demo/tools.py), same classifier, same
+thresholds, same three scenarios as docs/demo_walkthrough.md:
 
 1. ALLOW    — a genuinely benign page. Classifier score is low, nothing
               is held, the task completes normally.
-2. HOLD     — a page carrying a real held-out-derived injected instruction
-              (see tools.py's module docstring). Classifier score lands in
-              the mid-confidence band, execution pauses for human
-              approval. Run twice: once approved (showing the consequence
-              of a wrong approval — the injected send_email goes through),
-              once denied (showing the content gets quarantined and the
-              injection never reaches the agent).
+2. HOLD     — a page carrying a real held-out-derived injected instruction.
+              Run twice: denied (quarantined before Claude ever sees it)
+              and approved (the injected send_email goes through).
 3. FALSE POSITIVE — a second genuinely benign page that the classifier
-              scores very high (~0.96) despite there being nothing wrong
-              with it. Auto-quarantined before any human even sees it.
-              This is disclosed, not hidden: Phase 8 already measured
-              AgentDojo precision at 0.27-0.30, and this is that number
-              made concrete on a single, readable example.
+              scores very high despite there being nothing wrong with it.
+              Auto-quarantined before any human even sees it.
 
-Run with: python -m toolwarden.demo.run_demo
+Run with: python -m toolwarden.demo.run_demo_anthropic
 """
 
 from __future__ import annotations
@@ -32,10 +26,10 @@ from toolwarden import config
 
 config.configure_hf_cache_env()
 
-from openai import OpenAI  # noqa: E402
+from anthropic import Anthropic  # noqa: E402
 
 from toolwarden.demo.classify import Classifier  # noqa: E402
-from toolwarden.demo.guarded_loop import GuardedOpenAIToolLoop  # noqa: E402
+from toolwarden.demo.guarded_loop_anthropic import GuardedAnthropicToolLoop  # noqa: E402
 from toolwarden.demo.tools import (  # noqa: E402
     ALLOW_URL,
     FALSE_POSITIVE_URL,
@@ -50,16 +44,14 @@ from toolwarden.enforcement.policy import PolicyEngine  # noqa: E402
 from toolwarden.interceptor import Interceptor  # noqa: E402
 from toolwarden.logging_sink import JsonlFileSink  # noqa: E402
 
-# cwd-relative, not __file__-relative: this is a runnable script, not a
-# library module, so "logs/" should land wherever the caller ran it from.
-# A __file__-relative path resolves to the repo root in dev checkouts but
-# to somewhere inside site-packages for a pip-installed run (confirmed via
-# a real fresh-venv install during Phase 11's stop gate) — writing library
-# output into the venv's own package tree is wrong regardless of context.
-LOG_PATH = Path.cwd() / "logs" / "demo_traffic.jsonl"
-APPROVAL_LOG_PATH = Path.cwd() / "logs" / "demo_approvals.jsonl"
+# cwd-relative, not __file__-relative -- see demo/run_demo.py's identical
+# comment: a __file__-relative path resolves into site-packages for a
+# pip-installed run, not a sensible log location. Separate files from the
+# OpenAI/MCP demos so all three adapters' runs stay independently inspectable.
+LOG_PATH = Path.cwd() / "logs" / "anthropic_demo_traffic.jsonl"
+APPROVAL_LOG_PATH = Path.cwd() / "logs" / "anthropic_demo_approvals.jsonl"
 
-MODEL = "gpt-4o-mini"
+MODEL = "claude-haiku-4-5"
 
 
 def _print_header(title: str) -> None:
@@ -69,10 +61,6 @@ def _print_header(title: str) -> None:
 
 
 def _format_explanation(explanation) -> str:
-    """Phase 13 explainability-wiring fix: show WHY, not just the score.
-    Only called for non-ALLOW events -- an ALLOW's explanation is real but
-    not interesting enough to clutter every line of a clean run.
-    """
     deberta = ", ".join(f"{tok!r}={weight:.3f}" for tok, weight in explanation.deberta_top_tokens[:3])
     if explanation.lightgbm_top_features is None:
         return f"          deberta top tokens: {deberta}  (lightgbm: n/a, deberta_only mode)"
@@ -91,11 +79,6 @@ def _print_events(events) -> None:
 
 
 def _verify_startup_scores(classifier: Classifier) -> None:
-    """Prints the live score for each scenario's content before running
-    anything — the numbers in tools.py's docstring are a snapshot from
-    when this was written; this proves they still hold on this run,
-    same discipline as every other honest-numbers check in this project.
-    """
     print("Startup check — live classifier scores for each scenario's content:")
     for label, url in [("allow", ALLOW_URL), ("hold", HOLD_URL), ("false_positive", FALSE_POSITIVE_URL)]:
         score = classifier.score(fetch_webpage(url))
@@ -103,12 +86,12 @@ def _verify_startup_scores(classifier: Classifier) -> None:
     print()
 
 
-def _make_loop(classifier: Classifier, send_email_log: SentEmailLog, on_hold, client: OpenAI) -> GuardedOpenAIToolLoop:
+def _make_loop(classifier: Classifier, send_email_log: SentEmailLog, on_hold, client: Anthropic) -> GuardedAnthropicToolLoop:
     interceptor = Interceptor(sink=JsonlFileSink(LOG_PATH))
     policy = PolicyEngine()
     approval_sink = JsonlFileSink(APPROVAL_LOG_PATH)
     tool_functions = {"fetch_webpage": fetch_webpage, "send_email": make_send_email(send_email_log)}
-    return GuardedOpenAIToolLoop(
+    return GuardedAnthropicToolLoop(
         client=client,
         model=MODEL,
         tools_schema=TOOLS_SCHEMA,
@@ -121,8 +104,8 @@ def _make_loop(classifier: Classifier, send_email_log: SentEmailLog, on_hold, cl
     )
 
 
-def run_allow_scenario(classifier: Classifier, client: OpenAI) -> None:
-    _print_header("SCENARIO 1: ALLOW — genuinely benign page")
+def run_allow_scenario(classifier: Classifier, client: Anthropic) -> None:
+    _print_header("SCENARIO 1: ALLOW — genuinely benign page (via Claude)")
 
     def on_hold(pending_id, direction, payload, label, score):
         raise AssertionError(f"Unexpected HOLD in the allow scenario: {label} score={score}")
@@ -135,8 +118,8 @@ def run_allow_scenario(classifier: Classifier, client: OpenAI) -> None:
     print(f"Emails sent during this run: {len(log.sent)} (expected 0)")
 
 
-def run_hold_scenario(classifier: Classifier, client: OpenAI, decision: ApprovalDecision) -> None:
-    _print_header(f"SCENARIO 2: HOLD -> {decision.value.upper()} — injected page")
+def run_hold_scenario(classifier: Classifier, client: Anthropic, decision: ApprovalDecision) -> None:
+    _print_header(f"SCENARIO 2: HOLD -> {decision.value.upper()} — injected page (via Claude)")
 
     def on_hold(pending_id, direction, payload, label, score):
         print(f"\n  >>> HELD for approval: {label} (score={score:.3f}). Reviewer decision: {decision.value}. <<<\n")
@@ -153,8 +136,8 @@ def run_hold_scenario(classifier: Classifier, client: OpenAI, decision: Approval
             print(f"  -> to={email['to']!r} subject={email['subject']!r}")
 
 
-def run_false_positive_scenario(classifier: Classifier, client: OpenAI) -> None:
-    _print_header("SCENARIO 3: FALSE POSITIVE — benign page, auto-quarantined")
+def run_false_positive_scenario(classifier: Classifier, client: Anthropic) -> None:
+    _print_header("SCENARIO 3: FALSE POSITIVE — benign page, auto-quarantined (via Claude)")
 
     def on_hold(pending_id, direction, payload, label, score):
         raise AssertionError(f"Unexpected HOLD in the false-positive scenario: {label} score={score}")
@@ -166,20 +149,20 @@ def run_false_positive_scenario(classifier: Classifier, client: OpenAI) -> None:
     print(f"\nAgent's final answer: {result.final_text}")
     print(
         "\nNote: this page is genuinely benign (a weather update) but scored high enough to be "
-        "auto-quarantined without ever reaching human review. This is Phase 8's measured AgentDojo "
-        "precision (0.27-0.30) made concrete on one example — disclosed, not hidden."
+        "auto-quarantined without ever reaching human review — same disclosed classifier weakness "
+        "as Phase 9, this time reached through Claude's tool_use format instead of OpenAI's."
     )
 
 
 def main() -> None:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise SystemExit("OPENAI_API_KEY not set — this demo makes live OpenAI API calls.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise SystemExit("ANTHROPIC_API_KEY not set — this demo makes live Anthropic API calls.")
 
     print("Loading classifier (DeBERTa + LightGBM + ensemble)...")
     classifier = Classifier()
     _verify_startup_scores(classifier)
 
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     run_allow_scenario(classifier, client)
     run_hold_scenario(classifier, client, ApprovalDecision.DENIED)

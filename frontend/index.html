@@ -21,7 +21,7 @@
     <p class="hint">Actions held for human review (mid-confidence classifier score). Every resolution is attributed and logged.</p>
     <table id="approvals-table">
       <thead>
-        <tr><th>Direction</th><th>Score</th><th>Reason</th><th>Payload</th><th>Resolve</th></tr>
+        <tr><th>Direction</th><th>Score</th><th>Reason</th><th>Payload</th><th>Why (top evidence)</th><th>Resolve</th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -43,6 +43,7 @@
   <div class="dialog-box">
     <h2>Resolve approval</h2>
     <p id="resolve-summary"></p>
+    <div id="resolve-explanation" class="explanation"></div>
     <label>Decision
       <select id="resolve-decision">
         <option value="approved">Approve</option>

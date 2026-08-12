@@ -18,6 +18,46 @@ def _now_ms() -> int:
 
 
 @dataclass
+class Explanation:
+    """Phase 5's explainability output (SHAP for LightGBM, attention for
+    DeBERTa), attached to a score at its source so every consumer of a
+    Decision (guarded_loop.py, mcp_proxy/server.py, service/app.py) gets it
+    for free instead of each wiring its own call into
+    toolwarden.classifier.explain. Lives here, not in classifier/ or
+    enforcement/, so both can depend on the shape without a circular import.
+
+    lightgbm_top_features is None when detector_mode="deberta_only" --
+    LightGBM never runs in that mode, so there's nothing to explain.
+    """
+
+    deberta_top_tokens: list[tuple[str, float]]
+    lightgbm_top_features: list[tuple[str, float]] | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON has no tuple type -- pairs become 2-element arrays. Shared by
+        PostgresApprovalQueue (storage) and the FastAPI response model
+        (service/app.py), so both serialize this the same way.
+        """
+        return {
+            "deberta_top_tokens": [list(pair) for pair in self.deberta_top_tokens],
+            "lightgbm_top_features": (
+                None if self.lightgbm_top_features is None else [list(pair) for pair in self.lightgbm_top_features]
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Explanation":
+        return cls(
+            deberta_top_tokens=[tuple(pair) for pair in data["deberta_top_tokens"]],
+            lightgbm_top_features=(
+                None
+                if data.get("lightgbm_top_features") is None
+                else [tuple(pair) for pair in data["lightgbm_top_features"]]
+            ),
+        )
+
+
+@dataclass
 class ToolCallRequest:
     """An outbound tool-call request the agent wants to make, before execution."""
 

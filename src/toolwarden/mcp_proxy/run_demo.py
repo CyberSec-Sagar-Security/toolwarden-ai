@@ -64,12 +64,26 @@ def _print_header(title: str) -> None:
     print("=" * 78)
 
 
+def _format_explanation(explanation) -> str:
+    """Phase 13 explainability-wiring fix: show WHY, not just the score.
+    Only called for non-ALLOW events -- an ALLOW's explanation is real but
+    not interesting enough to clutter every line of a clean run.
+    """
+    deberta = ", ".join(f"{tok!r}={weight:.3f}" for tok, weight in explanation.deberta_top_tokens[:3])
+    if explanation.lightgbm_top_features is None:
+        return f"          deberta top tokens: {deberta}  (lightgbm: n/a, deberta_only mode)"
+    lightgbm = ", ".join(f"{feat}={val:+.3f}" for feat, val in explanation.lightgbm_top_features[:3])
+    return f"          deberta top tokens: {deberta}\n          lightgbm top features: {lightgbm}"
+
+
 def _print_events(events) -> None:
     for e in events:
         line = f"  [{e.direction:>7}] {e.label:<28} score={e.score:.3f} -> {e.decision}"
         if e.resolution:
             line += f"  (human: {e.resolution} -> final: {e.final_decision})"
         print(line)
+        if e.explanation is not None and e.decision != "allow":
+            print(_format_explanation(e.explanation))
 
 
 def _verify_startup_scores(classifier: Classifier) -> None:

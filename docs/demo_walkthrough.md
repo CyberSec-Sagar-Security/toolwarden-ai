@@ -57,6 +57,8 @@ Genuinely benign, no injected content at all — but scores above the 0.85 block
 
 ## Sample real output (from a verified run)
 
+Captured before Phase 13's explainability-wiring fix — every non-ALLOW line below now also prints the top DeBERTa tokens and LightGBM features behind the score (e.g. `deberta top tokens: '▁Alice'=0.072, '▁to'=0.064, '.'=0.041`), verified live in a separate run. Not reproduced here to avoid replacing this specific, already-verified sample with a different run whose non-deterministic branch (see the Reliability note below) happened not to trigger `send_email` — see `docs/known_limitations.md` for the full explainability-wiring writeup and what got checked.
+
 ```
 SCENARIO 1: ALLOW — genuinely benign page
   [request] request: fetch_webpage       score=0.025 -> allow

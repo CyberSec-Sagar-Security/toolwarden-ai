@@ -122,6 +122,39 @@ def test_outcome_for_denied_result_is_quarantine(queue):
     assert queue.outcome_for(record) is Decision.QUARANTINE
 
 
+def test_explanation_round_trips_through_submit_list_and_resolve(queue):
+    """Phase 13's explainability-wiring fix: the JSONB column has to survive
+    a real INSERT/SELECT round trip through Postgres, not just look right
+    in Python before it's ever written to the DB.
+    """
+    from toolwarden.enforcement.approval_queue import ApprovalDecision
+    from toolwarden.enforcement.policy import Direction
+    from toolwarden.models import Explanation
+
+    explanation = Explanation(
+        deberta_top_tokens=[("▁Ignore", 0.5), ("▁password", 0.3)],
+        lightgbm_top_features=[("imperative_phrasing_score", 3.2)],
+    )
+
+    pending = queue.submit(Direction.RESULT, {"content": "sketchy"}, "mid-confidence", 0.6, explanation=explanation)
+    assert pending.explanation == explanation
+
+    listed = queue.list_pending()
+    assert listed[0].explanation == explanation
+
+    record = queue.resolve(pending.id, ApprovalDecision.APPROVED, decided_by="sagar")
+    assert record.explanation == explanation
+
+
+def test_explanation_is_none_when_not_provided(queue):
+    from toolwarden.enforcement.policy import Direction
+
+    pending = queue.submit(Direction.REQUEST, {}, "mid-confidence", 0.6)
+
+    assert pending.explanation is None
+    assert queue.list_pending()[0].explanation is None
+
+
 # --- EnforcementEngine, unmodified, driven by PostgresApprovalQueue ---
 
 
